@@ -29,6 +29,7 @@ type Group struct {
 
 type GroupMembership struct {
 	BaseType
-	Role string `json:"role"`
-	User User   `json:"user"`
+	Role  string `json:"role"`
+	User  User   `json:"user"`
+	Group Group  `json:"group"`
 }

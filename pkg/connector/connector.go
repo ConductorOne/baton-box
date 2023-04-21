@@ -31,6 +31,13 @@ var (
 		Id:          "enterprise",
 		DisplayName: "Enterprise",
 	}
+	resourceTypeRole = &v2.ResourceType{
+		Id:          "role",
+		DisplayName: "Role",
+		Traits: []v2.ResourceType_Trait{
+			v2.ResourceType_TRAIT_ROLE,
+		},
+	}
 )
 
 type Box struct {
@@ -77,5 +84,6 @@ func (b *Box) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSy
 		userBuilder(b.client),
 		groupBuilder(b.client),
 		enterpriseBuilder(b.client),
+		roleBuilder(b.client),
 	}
 }

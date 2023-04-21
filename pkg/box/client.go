@@ -224,6 +224,24 @@ func (c *Client) GetCurrentUserWithEnterprise(ctx context.Context) (User, error)
 	return res, nil
 }
 
+// GetGroup returns Box group details.
+func (c *Client) GetGroup(ctx context.Context, groupId string) (Group, error) {
+	usersUrl := fmt.Sprint(baseUrl, "/2.0/groups/", groupId)
+
+	var res Group
+	params := url.Values{}
+	params.Set("fields", "invitability_level,member_viewability_level,name")
+
+	if err := c.doRequest(ctx, usersUrl, &res, params); err != nil {
+		if ErrorResponse.Type == errorType {
+			return Group{}, fmt.Errorf("failed to get group: %s", ErrorResponse.Message)
+		}
+		return Group{}, err
+	}
+
+	return res, nil
+}
+
 func (c *Client) doRequest(ctx context.Context, url string, res interface{}, params url.Values) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {

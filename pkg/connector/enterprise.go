@@ -2,25 +2,14 @@ package connector
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/ConductorOne/baton-box/pkg/box"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.uber.org/zap"
 
-	ent "github.com/conductorone/baton-sdk/pkg/types/entitlement"
-	"github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 )
-
-var roles = map[string]string{
-	"admin":   "admin",
-	"coadmin": "co-admin",
-	"user":    "user",
-}
 
 type enterpriseResourceType struct {
 	resourceType *v2.ResourceType
@@ -44,6 +33,7 @@ func enterpriseResource(ctx context.Context, policy box.Enterprise) (*v2.Resourc
 		rs.WithAnnotation(
 			&v2.ChildResourceType{ResourceTypeId: resourceTypeUser.Id},
 			&v2.ChildResourceType{ResourceTypeId: resourceTypeGroup.Id},
+			&v2.ChildResourceType{ResourceTypeId: resourceTypeRole.Id},
 		),
 	}
 
@@ -73,47 +63,9 @@ func (o *enterpriseResourceType) List(ctx context.Context, resourceId *v2.Resour
 }
 
 func (o *enterpriseResourceType) Entitlements(ctx context.Context, resource *v2.Resource, _ *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
-	var rv []*v2.Entitlement
-	for _, role := range roles {
-		permissionOptions := []ent.EntitlementOption{
-			ent.WithGrantableTo(resourceTypeUser),
-			ent.WithDescription(fmt.Sprintf("Role in %s Box enterprise", resource.DisplayName)),
-			ent.WithDisplayName(fmt.Sprintf("%s Enterprise %s", resource.DisplayName, role)),
-		}
-
-		permissionEn := ent.NewPermissionEntitlement(resource, role, permissionOptions...)
-		rv = append(rv, permissionEn)
-	}
-
-	return rv, "", nil, nil
+	return nil, "", nil, nil
 }
 
 func (o *enterpriseResourceType) Grants(ctx context.Context, resource *v2.Resource, pt *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
-	users, err := o.client.GetUsers(ctx)
-	if err != nil {
-		return nil, "", nil, err
-	}
-
-	var rv []*v2.Grant
-	for _, user := range users {
-		roleName, ok := roles[user.Role]
-		if !ok {
-			ctxzap.Extract(ctx).Warn("Unknown Box Role Name, skipping",
-				zap.String("role_name", user.Role),
-				zap.String("user", user.Name),
-			)
-			continue
-		}
-
-		userCopy := user
-		ur, err := userResource(&userCopy, resource.Id)
-		if err != nil {
-			return nil, "", nil, err
-		}
-
-		permissionGrant := grant.NewGrant(resource, roleName, ur.Id)
-		rv = append(rv, permissionGrant)
-	}
-
-	return rv, "", nil, nil
+	return nil, "", nil, nil
 }

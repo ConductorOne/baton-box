@@ -11,24 +11,25 @@ import (
 	ent "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	grant "github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.uber.org/zap"
 )
 
 const (
-	memberEntitlement = "member"
-	adminEntitlement  = "admin"
+	member           = "member"
+	admin            = "admin"
+	allManagedUsers  = "all_managed_users"
+	adminsOnly       = "admins_only"
+	adminsAndMembers = "admins_and_members"
 )
 
 var accessLevels = map[string]string{
-	"admins_only":        "admins only",
-	"admins_and_members": "admins and members",
-	"all_managed_users":  "all managed users",
+	adminsOnly:       "admins only",
+	adminsAndMembers: "admins and members",
+	allManagedUsers:  "all managed users",
 }
 
 var entitlements = []string{
-	memberEntitlement,
-	adminEntitlement,
+	member,
+	admin,
 }
 
 type groupResourceType struct {
@@ -92,8 +93,8 @@ func (g *groupResourceType) Entitlements(_ context.Context, resource *v2.Resourc
 	for _, entitlement := range entitlements {
 		assigmentOptions := []ent.EntitlementOption{
 			ent.WithGrantableTo(resourceTypeUser),
-			ent.WithDescription(fmt.Sprintf("%s of %s Group in Box", entitlement, resource.DisplayName)),
-			ent.WithDisplayName(fmt.Sprintf("%s Group %s", resource.DisplayName, entitlement)),
+			ent.WithDescription(fmt.Sprintf("%s of %s group in Box", titleCaser.String(entitlement), resource.DisplayName)),
+			ent.WithDisplayName(fmt.Sprintf("%s group %s", resource.DisplayName, entitlement)),
 		}
 
 		en := ent.NewAssignmentEntitlement(resource, entitlement, assigmentOptions...)
@@ -101,21 +102,14 @@ func (g *groupResourceType) Entitlements(_ context.Context, resource *v2.Resourc
 	}
 
 	for _, level := range accessLevels {
-		invitabilityOptions := []ent.EntitlementOption{
-			ent.WithGrantableTo(resourceTypeGroup),
-			ent.WithDescription(fmt.Sprintf("Invitability level for %s group", resource.DisplayName)),
-			ent.WithDisplayName(fmt.Sprintf("%s group %s invite", resource.DisplayName, level)),
+		permissionOptions := []ent.EntitlementOption{
+			ent.WithGrantableTo(resourceTypeUser),
+			ent.WithDescription(fmt.Sprintf("View and invite permission for %s group", resource.DisplayName)),
+			ent.WithDisplayName(fmt.Sprintf("%s permissions for %s group", titleCaser.String(level), resource.DisplayName)),
 		}
 
-		viewabilityOptions := []ent.EntitlementOption{
-			ent.WithGrantableTo(resourceTypeGroup),
-			ent.WithDescription(fmt.Sprintf("Member viewability level for %s group", resource.DisplayName)),
-			ent.WithDisplayName(fmt.Sprintf("%s group %s view", resource.DisplayName, level)),
-		}
-
-		viewabilityEn := ent.NewPermissionEntitlement(resource, fmt.Sprintf("%s view", level), viewabilityOptions...)
-		invitabilityEn := ent.NewPermissionEntitlement(resource, fmt.Sprintf("%s invite", level), invitabilityOptions...)
-		rv = append(rv, viewabilityEn, invitabilityEn)
+		permissionEn := ent.NewPermissionEntitlement(resource, level, permissionOptions...)
+		rv = append(rv, permissionEn)
 	}
 
 	return rv, "", nil, nil
@@ -124,12 +118,31 @@ func (g *groupResourceType) Entitlements(_ context.Context, resource *v2.Resourc
 func (g *groupResourceType) Grants(ctx context.Context, resource *v2.Resource, token *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
 	var rv []*v2.Grant
 
-	groupMemberships, err := g.client.GetGroupMemberships(ctx, resource.Id.Resource)
+	group, err := g.client.GetGroup(ctx, resource.Id.Resource)
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	groups, err := g.client.GetGroups(ctx)
+	if group.MemberViewabilityLevel == allManagedUsers {
+		allUsers, err := g.client.GetUsers(ctx)
+		if err != nil {
+			return nil, "", nil, err
+		}
+
+		for _, user := range allUsers {
+			userCopy := user
+			ur, err := userResource(&userCopy, resource.Id)
+			if err != nil {
+				return nil, "", nil, err
+			}
+
+			grant := grant.NewGrant(resource, accessLevels[allManagedUsers], ur.Id)
+
+			rv = append(rv, grant)
+		}
+	}
+
+	groupMemberships, err := g.client.GetGroupMemberships(ctx, resource.Id.Resource)
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -139,39 +152,16 @@ func (g *groupResourceType) Grants(ctx context.Context, resource *v2.Resource, t
 		if err != nil {
 			return nil, "", nil, err
 		}
+		membershipGrant := grant.NewGrant(resource, groupMembership.Role, ur.Id)
+		rv = append(rv, membershipGrant)
 
-		grant := grant.NewGrant(resource, groupMembership.Role, ur.Id)
-		rv = append(rv, grant)
-	}
-
-	for _, group := range groups {
-		invitabilityLevel, ok := accessLevels[group.InvitabilityLevel]
-		if !ok {
-			ctxzap.Extract(ctx).Warn("Unknown Box Invitability Level, skipping",
-				zap.String("invitability level", group.InvitabilityLevel),
-				zap.String("group", group.Name),
-			)
-			continue
+		if group.MemberViewabilityLevel == adminsOnly && groupMembership.Role == admin {
+			adminsGrant := grant.NewGrant(resource, accessLevels[adminsOnly], ur.Id)
+			rv = append(rv, adminsGrant)
+		} else if group.MemberViewabilityLevel == adminsAndMembers {
+			membersGrant := grant.NewGrant(resource, accessLevels[adminsAndMembers], ur.Id)
+			rv = append(rv, membersGrant)
 		}
-
-		memberViewabilityLevel, ok := accessLevels[group.MemberViewabilityLevel]
-		if !ok {
-			ctxzap.Extract(ctx).Warn("Unknown Box Member Viewability Level, skipping",
-				zap.String("member viewability level", group.InvitabilityLevel),
-				zap.String("group", group.Name),
-			)
-			continue
-		}
-
-		groupCopy := group
-		gr, err := groupResource(&groupCopy, resource.Id)
-		if err != nil {
-			return nil, "", nil, err
-		}
-
-		invitabilityGrant := grant.NewGrant(resource, fmt.Sprintf("%s invite", invitabilityLevel), gr.Id)
-		memberViewabilityGrant := grant.NewGrant(resource, fmt.Sprintf("%s view", memberViewabilityLevel), gr.Id)
-		rv = append(rv, invitabilityGrant, memberViewabilityGrant)
 	}
 
 	return rv, "", nil, nil
