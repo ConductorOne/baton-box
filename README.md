@@ -13,7 +13,7 @@ Check out [Baton](https://github.com/conductorone/baton) to learn more the proje
 4. Application Scopes: 
   - manage users
   - manage groups
-  - manage enterprise properites
+  - manage enterprise properties
   - grant read resource
 5. App must be approved by your Box admin. More info [here](https://developer.box.com/guides/authorization/custom-app-approval/)
 6. Enterprise ID can be found in `Developer console -> Your App -> General settings`

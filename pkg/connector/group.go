@@ -14,23 +14,9 @@ import (
 )
 
 const (
-	member           = "member"
-	admin            = "admin"
-	allManagedUsers  = "all_managed_users"
-	adminsOnly       = "admins_only"
-	adminsAndMembers = "admins_and_members"
+	member = "member"
+	admin  = "admin"
 )
-
-var accessLevels = map[string]string{
-	adminsOnly:       "admins only",
-	adminsAndMembers: "admins and members",
-	allManagedUsers:  "all managed users",
-}
-
-var entitlements = []string{
-	member,
-	admin,
-}
 
 type groupResourceType struct {
 	resourceType *v2.ResourceType
@@ -90,57 +76,19 @@ func (g *groupResourceType) List(ctx context.Context, parentId *v2.ResourceId, t
 func (g *groupResourceType) Entitlements(_ context.Context, resource *v2.Resource, _ *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
 	var rv []*v2.Entitlement
 
-	for _, entitlement := range entitlements {
-		assigmentOptions := []ent.EntitlementOption{
-			ent.WithGrantableTo(resourceTypeUser),
-			ent.WithDescription(fmt.Sprintf("%s of %s group in Box", titleCaser.String(entitlement), resource.DisplayName)),
-			ent.WithDisplayName(fmt.Sprintf("%s group %s", resource.DisplayName, entitlement)),
-		}
+	assigmentOptions := PopulateOptions(resource.DisplayName, member, resource.Id.Resource)
+	assignmentEn := ent.NewAssignmentEntitlement(resource, member, assigmentOptions...)
 
-		en := ent.NewAssignmentEntitlement(resource, entitlement, assigmentOptions...)
-		rv = append(rv, en)
-	}
+	permissionOptions := PopulateOptions(resource.DisplayName, admin, resource.Id.Resource)
+	permissionEn := ent.NewPermissionEntitlement(resource, admin, permissionOptions...)
 
-	for _, level := range accessLevels {
-		permissionOptions := []ent.EntitlementOption{
-			ent.WithGrantableTo(resourceTypeUser),
-			ent.WithDescription(fmt.Sprintf("View and invite permission for %s group", resource.DisplayName)),
-			ent.WithDisplayName(fmt.Sprintf("%s permissions for %s group", titleCaser.String(level), resource.DisplayName)),
-		}
-
-		permissionEn := ent.NewPermissionEntitlement(resource, level, permissionOptions...)
-		rv = append(rv, permissionEn)
-	}
+	rv = append(rv, assignmentEn, permissionEn)
 
 	return rv, "", nil, nil
 }
 
 func (g *groupResourceType) Grants(ctx context.Context, resource *v2.Resource, token *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
 	var rv []*v2.Grant
-
-	group, err := g.client.GetGroup(ctx, resource.Id.Resource)
-	if err != nil {
-		return nil, "", nil, err
-	}
-
-	if group.MemberViewabilityLevel == allManagedUsers {
-		allUsers, err := g.client.GetUsers(ctx)
-		if err != nil {
-			return nil, "", nil, err
-		}
-
-		for _, user := range allUsers {
-			userCopy := user
-			ur, err := userResource(&userCopy, resource.Id)
-			if err != nil {
-				return nil, "", nil, err
-			}
-
-			grant := grant.NewGrant(resource, accessLevels[allManagedUsers], ur.Id)
-
-			rv = append(rv, grant)
-		}
-	}
 
 	groupMemberships, err := g.client.GetGroupMemberships(ctx, resource.Id.Resource)
 	if err != nil {
@@ -152,15 +100,12 @@ func (g *groupResourceType) Grants(ctx context.Context, resource *v2.Resource, t
 		if err != nil {
 			return nil, "", nil, err
 		}
-		membershipGrant := grant.NewGrant(resource, groupMembership.Role, ur.Id)
+		membershipGrant := grant.NewGrant(resource, member, ur.Id)
 		rv = append(rv, membershipGrant)
 
-		if group.MemberViewabilityLevel == adminsOnly && groupMembership.Role == admin {
-			adminsGrant := grant.NewGrant(resource, accessLevels[adminsOnly], ur.Id)
+		if groupMembership.Role == admin {
+			adminsGrant := grant.NewGrant(resource, admin, ur.Id)
 			rv = append(rv, adminsGrant)
-		} else if group.MemberViewabilityLevel == adminsAndMembers {
-			membersGrant := grant.NewGrant(resource, accessLevels[adminsAndMembers], ur.Id)
-			rv = append(rv, membersGrant)
 		}
 	}
 

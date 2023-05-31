@@ -26,7 +26,7 @@ func validateConfig(ctx context.Context, cfg *config) error {
 		return fmt.Errorf("client secret is missing")
 	}
 	if cfg.EnterpriseID == "" {
-		return fmt.Errorf("client id is missing")
+		return fmt.Errorf("enterprise id is missing")
 	}
 	return nil
 }

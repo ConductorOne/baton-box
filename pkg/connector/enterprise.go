@@ -2,12 +2,15 @@ package connector
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/ConductorOne/baton-box/pkg/box"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 
+	ent "github.com/conductorone/baton-sdk/pkg/types/entitlement"
+	grant "github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 )
 
@@ -63,9 +66,36 @@ func (o *enterpriseResourceType) List(ctx context.Context, resourceId *v2.Resour
 }
 
 func (o *enterpriseResourceType) Entitlements(ctx context.Context, resource *v2.Resource, _ *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
-	return nil, "", nil, nil
+	var rv []*v2.Entitlement
+
+	assigmentOptions := []ent.EntitlementOption{
+		ent.WithGrantableTo(resourceTypeUser),
+		ent.WithDescription(fmt.Sprintf("%s of %s Box enterprise", member, resource.DisplayName)),
+		ent.WithDisplayName(fmt.Sprintf("%s enterprise %s", resource.DisplayName, member)),
+	}
+
+	assignmentEn := ent.NewAssignmentEntitlement(resource, member, assigmentOptions...)
+	rv = append(rv, assignmentEn)
+
+	return rv, "", nil, nil
 }
 
 func (o *enterpriseResourceType) Grants(ctx context.Context, resource *v2.Resource, pt *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
-	return nil, "", nil, nil
+	users, err := o.client.GetUsers(ctx)
+	if err != nil {
+		return nil, "", nil, fmt.Errorf("box-connector: failed to list users: %w", err)
+	}
+
+	var rv []*v2.Grant
+	for _, user := range users {
+		userCopy := user
+		ur, err := userResource(&userCopy, resource.Id)
+		if err != nil {
+			return nil, "", nil, err
+		}
+		membershipGrant := grant.NewGrant(resource, member, ur.Id)
+		rv = append(rv, membershipGrant)
+	}
+
+	return rv, "", nil, nil
 }
