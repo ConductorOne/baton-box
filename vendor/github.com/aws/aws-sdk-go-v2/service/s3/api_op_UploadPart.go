@@ -73,14 +73,14 @@ import (
 //   - x-amz-server-side-encryption-customer-key
 //   - x-amz-server-side-encryption-customer-key-MD5
 //
-// Special Errors
+// UploadPart has the following special errors:
 //   - Code: NoSuchUpload
 //   - Cause: The specified multipart upload does not exist. The upload ID might
 //     be invalid, or the multipart upload might have been aborted or completed.
 //   - HTTP Status Code: 404 Not Found
 //   - SOAP Fault Code Prefix: Client
 //
-// Related Resources
+// The following operations are related to UploadPart :
 //   - CreateMultipartUpload (https://docs.aws.amazon.com/AmazonS3/latest/API/API_CreateMultipartUpload.html)
 //   - CompleteMultipartUpload (https://docs.aws.amazon.com/AmazonS3/latest/API/API_CompleteMultipartUpload.html)
 //   - AbortMultipartUpload (https://docs.aws.amazon.com/AmazonS3/latest/API/API_AbortMultipartUpload.html)
@@ -346,6 +346,9 @@ func (c *Client) addOperationUploadPartMiddlewares(stack *middleware.Stack, opti
 		return err
 	}
 	if err = add100Continue(stack, options); err != nil {
+		return err
+	}
+	if err = awsmiddleware.AddRecursionDetection(stack); err != nil {
 		return err
 	}
 	if err = addUploadPartInputChecksumMiddlewares(stack, options); err != nil {

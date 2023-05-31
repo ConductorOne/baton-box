@@ -27,7 +27,7 @@ import (
 // versionId query parameter. You also need permission for the
 // s3:PutObjectVersionTagging action. For information about the Amazon S3 object
 // tagging feature, see Object Tagging (https://docs.aws.amazon.com/AmazonS3/latest/dev/object-tagging.html)
-// . Special Errors
+// . PutObjectTagging has the following special errors:
 //   - Code: InvalidTagError
 //   - Cause: The tag provided was not a valid tag. This error can occur if the
 //     tag did not pass input validation. For more information, see Object Tagging (https://docs.aws.amazon.com/AmazonS3/latest/dev/object-tagging.html)
@@ -40,7 +40,7 @@ import (
 //   - Code: InternalError
 //   - Cause: The service was unable to apply the provided tag to the object.
 //
-// Related Resources
+// The following operations are related to PutObjectTagging :
 //   - GetObjectTagging (https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObjectTagging.html)
 //   - DeleteObjectTagging (https://docs.aws.amazon.com/AmazonS3/latest/API/API_DeleteObjectTagging.html)
 func (c *Client) PutObjectTagging(ctx context.Context, params *PutObjectTaggingInput, optFns ...func(*Options)) (*PutObjectTaggingOutput, error) {
@@ -188,6 +188,9 @@ func (c *Client) addOperationPutObjectTaggingMiddlewares(stack *middleware.Stack
 		return err
 	}
 	if err = addMetadataRetrieverMiddleware(stack); err != nil {
+		return err
+	}
+	if err = awsmiddleware.AddRecursionDetection(stack); err != nil {
 		return err
 	}
 	if err = addPutObjectTaggingInputChecksumMiddlewares(stack, options); err != nil {

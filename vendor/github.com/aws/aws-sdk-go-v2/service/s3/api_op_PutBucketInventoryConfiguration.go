@@ -43,21 +43,14 @@ import (
 // in the Amazon S3 User Guide. For more information about permissions, see
 // Permissions related to bucket subresource operations (https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-with-s3-actions.html#using-with-s3-actions-related-to-bucket-subresources)
 // and Identity and access management in Amazon S3 (https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-access-control.html)
-// in the Amazon S3 User Guide. Special Errors
-//   - HTTP 400 Bad Request Error
-//   - Code: InvalidArgument
-//   - Cause: Invalid Argument
-//   - HTTP 400 Bad Request Error
-//   - Code: TooManyConfigurations
-//   - Cause: You are attempting to create a new configuration but have already
-//     reached the 1,000-configuration limit.
-//   - HTTP 403 Forbidden Error
-//   - Code: AccessDenied
-//   - Cause: You are not the owner of the specified bucket, or you do not have
-//     the s3:PutInventoryConfiguration bucket permission to set the configuration on
-//     the bucket.
-//
-// Related Resources
+// in the Amazon S3 User Guide. PutBucketInventoryConfiguration has the following
+// special errors: HTTP 400 Bad Request Error Code: InvalidArgument Cause: Invalid
+// Argument HTTP 400 Bad Request Error Code: TooManyConfigurations Cause: You are
+// attempting to create a new configuration but have already reached the
+// 1,000-configuration limit. HTTP 403 Forbidden Error Cause: You are not the owner
+// of the specified bucket, or you do not have the s3:PutInventoryConfiguration
+// bucket permission to set the configuration on the bucket. The following
+// operations are related to PutBucketInventoryConfiguration :
 //   - GetBucketInventoryConfiguration (https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetBucketInventoryConfiguration.html)
 //   - DeleteBucketInventoryConfiguration (https://docs.aws.amazon.com/AmazonS3/latest/API/API_DeleteBucketInventoryConfiguration.html)
 //   - ListBucketInventoryConfigurations (https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListBucketInventoryConfigurations.html)
@@ -163,6 +156,9 @@ func (c *Client) addOperationPutBucketInventoryConfigurationMiddlewares(stack *m
 		return err
 	}
 	if err = addMetadataRetrieverMiddleware(stack); err != nil {
+		return err
+	}
+	if err = awsmiddleware.AddRecursionDetection(stack); err != nil {
 		return err
 	}
 	if err = addPutBucketInventoryConfigurationUpdateEndpoint(stack, options); err != nil {

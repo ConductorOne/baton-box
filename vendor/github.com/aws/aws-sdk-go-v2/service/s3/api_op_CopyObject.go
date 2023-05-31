@@ -128,24 +128,22 @@ import (
 // use the CopyObject action to change the storage class of an object that is
 // already stored in Amazon S3 using the StorageClass parameter. For more
 // information, see Storage Classes (https://docs.aws.amazon.com/AmazonS3/latest/dev/storage-class-intro.html)
-// in the Amazon S3 User Guide. Versioning By default, x-amz-copy-source
-// identifies the current version of an object to copy. If the current version is a
-// delete marker, Amazon S3 behaves as if the object was deleted. To copy a
-// different version, use the versionId subresource. If you enable versioning on
-// the target bucket, Amazon S3 generates a unique version ID for the object being
-// copied. This version ID is different from the version ID of the source object.
-// Amazon S3 returns the version ID of the copied object in the x-amz-version-id
-// response header in the response. If you do not enable versioning or suspend it
-// on the target bucket, the version ID that Amazon S3 generates is always null. If
-// the source object's storage class is GLACIER, you must restore a copy of this
-// object before you can use it as a source object for the copy operation. For more
-// information, see RestoreObject (https://docs.aws.amazon.com/AmazonS3/latest/API/API_RestoreObject.html)
-// . The following operations are related to CopyObject :
+// in the Amazon S3 User Guide. If the source object's storage class is GLACIER,
+// you must restore a copy of this object before you can use it as a source object
+// for the copy operation. For more information, see RestoreObject (https://docs.aws.amazon.com/AmazonS3/latest/API/API_RestoreObject.html)
+// . For more information, see Copying Objects (https://docs.aws.amazon.com/AmazonS3/latest/dev/CopyingObjectsExamples.html)
+// . Versioning By default, x-amz-copy-source identifies the current version of an
+// object to copy. If the current version is a delete marker, Amazon S3 behaves as
+// if the object was deleted. To copy a different version, use the versionId
+// subresource. If you enable versioning on the target bucket, Amazon S3 generates
+// a unique version ID for the object being copied. This version ID is different
+// from the version ID of the source object. Amazon S3 returns the version ID of
+// the copied object in the x-amz-version-id response header in the response. If
+// you do not enable versioning or suspend it on the target bucket, the version ID
+// that Amazon S3 generates is always null. The following operations are related to
+// CopyObject :
 //   - PutObject (https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html)
 //   - GetObject (https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html)
-//
-// For more information, see Copying Objects (https://docs.aws.amazon.com/AmazonS3/latest/dev/CopyingObjectsExamples.html)
-// .
 func (c *Client) CopyObject(ctx context.Context, params *CopyObjectInput, optFns ...func(*Options)) (*CopyObjectOutput, error) {
 	if params == nil {
 		params = &CopyObjectInput{}
@@ -498,6 +496,9 @@ func (c *Client) addOperationCopyObjectMiddlewares(stack *middleware.Stack, opti
 		return err
 	}
 	if err = addMetadataRetrieverMiddleware(stack); err != nil {
+		return err
+	}
+	if err = awsmiddleware.AddRecursionDetection(stack); err != nil {
 		return err
 	}
 	if err = addCopyObjectUpdateEndpoint(stack, options); err != nil {

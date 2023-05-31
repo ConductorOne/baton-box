@@ -129,7 +129,7 @@ type ListPartsOutput struct {
 	// object name in the request, then the response includes this header indicating
 	// when the initiated multipart upload will become eligible for abort operation.
 	// For more information, see Aborting Incomplete Multipart Uploads Using a Bucket
-	// Lifecycle Policy (https://docs.aws.amazon.com/AmazonS3/latest/dev/mpuoverview.html#mpu-abort-incomplete-mpu-lifecycle-config)
+	// Lifecycle Configuration (https://docs.aws.amazon.com/AmazonS3/latest/dev/mpuoverview.html#mpu-abort-incomplete-mpu-lifecycle-config)
 	// . The response will also include the x-amz-abort-rule-id header that will
 	// provide the ID of the lifecycle configuration rule that defines this action.
 	AbortDate *time.Time
@@ -254,6 +254,9 @@ func (c *Client) addOperationListPartsMiddlewares(stack *middleware.Stack, optio
 		return err
 	}
 	if err = addMetadataRetrieverMiddleware(stack); err != nil {
+		return err
+	}
+	if err = awsmiddleware.AddRecursionDetection(stack); err != nil {
 		return err
 	}
 	if err = addListPartsUpdateEndpoint(stack, options); err != nil {

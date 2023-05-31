@@ -76,7 +76,7 @@ import (
 // S3 returns this ID in the response. When you enable versioning for a bucket, if
 // Amazon S3 receives multiple write requests for the same object simultaneously,
 // it stores all of the objects. For more information about versioning, see Adding
-// Objects to Versioning Enabled Buckets (https://docs.aws.amazon.com/AmazonS3/latest/dev/AddingObjectstoVersioningEnabledBuckets.html)
+// Objects to Versioning-Enabled Buckets (https://docs.aws.amazon.com/AmazonS3/latest/dev/AddingObjectstoVersioningEnabledBuckets.html)
 // . For information about returning the versioning state of a bucket, see
 // GetBucketVersioning (https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetBucketVersioning.html)
 // . For more information about related Amazon S3 APIs, see the following:
@@ -470,6 +470,9 @@ func (c *Client) addOperationPutObjectMiddlewares(stack *middleware.Stack, optio
 		return err
 	}
 	if err = add100Continue(stack, options); err != nil {
+		return err
+	}
+	if err = awsmiddleware.AddRecursionDetection(stack); err != nil {
 		return err
 	}
 	if err = addPutObjectInputChecksumMiddlewares(stack, options); err != nil {

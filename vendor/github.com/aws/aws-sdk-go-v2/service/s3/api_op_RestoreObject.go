@@ -19,21 +19,17 @@ import (
 //   - select - Perform a select query on an archived object
 //   - restore an archive - Restore an archived object
 //
-// To use this operation, you must have permissions to perform the s3:RestoreObject
-// action. The bucket owner has this permission by default and can grant this
-// permission to others. For more information about permissions, see Permissions
-// Related to Bucket Subresource Operations (https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-with-s3-actions.html#using-with-s3-actions-related-to-bucket-subresources)
-// and Managing Access Permissions to Your Amazon S3 Resources (https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-access-control.html)
-// in the Amazon S3 User Guide. For more information about the S3 structure in the
-// request body, see the following:
+// For more information about the S3 structure in the request body, see the
+// following:
 //   - PutObject (https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html)
 //   - Managing Access with ACLs (https://docs.aws.amazon.com/AmazonS3/latest/dev/S3_ACLs_UsingACLs.html)
 //     in the Amazon S3 User Guide
 //   - Protecting Data Using Server-Side Encryption (https://docs.aws.amazon.com/AmazonS3/latest/dev/serv-side-encryption.html)
 //     in the Amazon S3 User Guide
-//   - Define the SQL expression for the SELECT type of restoration for your query
-//     in the request body's SelectParameters structure. You can use expressions like
-//     the following examples.
+//
+// Define the SQL expression for the SELECT type of restoration for your query in
+// the request body's SelectParameters structure. You can use expressions like the
+// following examples.
 //   - The following expression returns all records from the specified object.
 //     SELECT * FROM Object
 //   - Assuming that you are not using any headers for data stored in the object,
@@ -53,34 +49,38 @@ import (
 //     results.
 //
 // The following are additional important facts about the select feature:
-//
 //   - The output results are new Amazon S3 objects. Unlike archive retrievals,
-//     they are stored until explicitly deleted-manually or through a lifecycle policy.
-//
+//     they are stored until explicitly deleted-manually or through a lifecycle
+//     configuration.
 //   - You can issue more than one select request on the same Amazon S3 object.
 //     Amazon S3 doesn't duplicate requests, so avoid issuing duplicate requests.
-//
 //   - Amazon S3 accepts a select request even if the object has already been
 //     restored. A select request doesn’t return error response 409 .
 //
-// Restoring objects Objects that you archive to the S3 Glacier Flexible Retrieval
-// or S3 Glacier Deep Archive storage class, and S3 Intelligent-Tiering Archive or
-// S3 Intelligent-Tiering Deep Archive tiers, are not accessible in real time. For
-// objects in the S3 Glacier Flexible Retrieval or S3 Glacier Deep Archive storage
-// classes, you must first initiate a restore request, and then wait until a
-// temporary copy of the object is available. If you want a permanent copy of the
-// object, create a copy of it in the Amazon S3 Standard storage class in your S3
-// bucket. To access an archived object, you must restore the object for the
-// duration (number of days) that you specify. For objects in the Archive Access or
-// Deep Archive Access tiers of S3 Intelligent-Tiering, you must first initiate a
-// restore request, and then wait until the object is moved into the Frequent
-// Access tier. To restore a specific object version, you can provide a version ID.
-// If you don't provide a version ID, Amazon S3 restores the current version. When
-// restoring an archived object, you can specify one of the following data access
-// tier options in the Tier element of the request body:
+// Permissions To use this operation, you must have permissions to perform the
+// s3:RestoreObject action. The bucket owner has this permission by default and can
+// grant this permission to others. For more information about permissions, see
+// Permissions Related to Bucket Subresource Operations (https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-with-s3-actions.html#using-with-s3-actions-related-to-bucket-subresources)
+// and Managing Access Permissions to Your Amazon S3 Resources (https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-access-control.html)
+// in the Amazon S3 User Guide. Restoring objects Objects that you archive to the
+// S3 Glacier Flexible Retrieval or S3 Glacier Deep Archive storage class, and S3
+// Intelligent-Tiering Archive or S3 Intelligent-Tiering Deep Archive tiers, are
+// not accessible in real time. For objects in the S3 Glacier Flexible Retrieval or
+// S3 Glacier Deep Archive storage classes, you must first initiate a restore
+// request, and then wait until a temporary copy of the object is available. If you
+// want a permanent copy of the object, create a copy of it in the Amazon S3
+// Standard storage class in your S3 bucket. To access an archived object, you must
+// restore the object for the duration (number of days) that you specify. For
+// objects in the Archive Access or Deep Archive Access tiers of S3
+// Intelligent-Tiering, you must first initiate a restore request, and then wait
+// until the object is moved into the Frequent Access tier. To restore a specific
+// object version, you can provide a version ID. If you don't provide a version ID,
+// Amazon S3 restores the current version. When restoring an archived object, you
+// can specify one of the following data access tier options in the Tier element
+// of the request body:
 //   - Expedited - Expedited retrievals allow you to quickly access your data
 //     stored in the S3 Glacier Flexible Retrieval storage class or S3
-//     Intelligent-Tiering Archive tier when occasional urgent requests for a subset of
+//     Intelligent-Tiering Archive tier when occasional urgent requests for restoring
 //     archives are required. For all but the largest archived objects (250 MB+), data
 //     accessed using Expedited retrievals is typically made available within 1–5
 //     minutes. Provisioned capacity ensures that retrieval capacity for Expedited
@@ -128,26 +128,36 @@ import (
 // and Object Lifecycle Management (https://docs.aws.amazon.com/AmazonS3/latest/dev/object-lifecycle-mgmt.html)
 // in Amazon S3 User Guide. Responses A successful action returns either the 200 OK
 // or 202 Accepted status code.
+//
 //   - If the object is not previously restored, then Amazon S3 returns 202
 //     Accepted in the response.
+//
 //   - If the object is previously restored, Amazon S3 returns 200 OK in the
 //     response.
 //
-// Special Errors
+//   - Special errors:
+//
 //   - Code: RestoreAlreadyInProgress
+//
 //   - Cause: Object restore is already in progress. (This error does not apply to
 //     SELECT type requests.)
+//
 //   - HTTP Status Code: 409 Conflict
+//
 //   - SOAP Fault Code Prefix: Client
+//
 //   - Code: GlacierExpeditedRetrievalNotAvailable
+//
 //   - Cause: expedited retrievals are currently not available. Try again later.
 //     (Returned if there is insufficient capacity to process the Expedited request.
 //     This error applies only to Expedited retrievals and not to S3 Standard or Bulk
 //     retrievals.)
+//
 //   - HTTP Status Code: 503
+//
 //   - SOAP Fault Code Prefix: N/A
 //
-// Related Resources
+// The following operations are related to RestoreObject :
 //   - PutBucketLifecycleConfiguration (https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutBucketLifecycleConfiguration.html)
 //   - GetBucketNotificationConfiguration (https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetBucketNotificationConfiguration.html)
 func (c *Client) RestoreObject(ctx context.Context, params *RestoreObjectInput, optFns ...func(*Options)) (*RestoreObjectOutput, error) {
@@ -293,6 +303,9 @@ func (c *Client) addOperationRestoreObjectMiddlewares(stack *middleware.Stack, o
 		return err
 	}
 	if err = addMetadataRetrieverMiddleware(stack); err != nil {
+		return err
+	}
+	if err = awsmiddleware.AddRecursionDetection(stack); err != nil {
 		return err
 	}
 	if err = addRestoreObjectInputChecksumMiddlewares(stack, options); err != nil {

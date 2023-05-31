@@ -10,7 +10,7 @@ import (
 // Specifies the days since the initiation of an incomplete multipart upload that
 // Amazon S3 will wait before permanently removing all parts of the upload. For
 // more information, see Aborting Incomplete Multipart Uploads Using a Bucket
-// Lifecycle Policy (https://docs.aws.amazon.com/AmazonS3/latest/dev/mpuoverview.html#mpu-abort-incomplete-mpu-lifecycle-config)
+// Lifecycle Configuration (https://docs.aws.amazon.com/AmazonS3/latest/dev/mpuoverview.html#mpu-abort-incomplete-mpu-lifecycle-config)
 // in the Amazon S3 User Guide.
 type AbortIncompleteMultipartUpload struct {
 
@@ -755,7 +755,9 @@ type Error struct {
 
 	// The error code is a string that uniquely identifies an error condition. It is
 	// meant to be read and understood by programs that detect and handle errors by
-	// type. Amazon S3 error codes
+	// type. The following is a list of Amazon S3 error codes. For more information,
+	// see Error responses (https://docs.aws.amazon.com/AmazonS3/latest/API/ErrorResponses.html)
+	// .
 	//   - Code: AccessDenied
 	//   - Description: Access Denied
 	//   - HTTP Status Code: 403 Forbidden
@@ -1592,7 +1594,7 @@ type LambdaFunctionConfiguration struct {
 	LambdaFunctionArn *string
 
 	// Specifies object key name filtering rules. For information about key name
-	// filtering, see Configuring Event Notifications (https://docs.aws.amazon.com/AmazonS3/latest/dev/NotificationHowTo.html)
+	// filtering, see Configuring event notifications using object key name filtering (https://docs.aws.amazon.com/AmazonS3/latest/userguide/notification-how-to-filtering.html)
 	// in the Amazon S3 User Guide.
 	Filter *NotificationConfigurationFilter
 
@@ -1608,8 +1610,8 @@ type LambdaFunctionConfiguration struct {
 // in the Amazon S3 User Guide.
 type LifecycleExpiration struct {
 
-	// Indicates at what date the object is to be moved or deleted. Should be in GMT
-	// ISO 8601 Format.
+	// Indicates at what date the object is to be moved or deleted. The date value
+	// must conform to the ISO 8601 format. The time is always midnight UTC.
 	Date *time.Time
 
 	// Indicates the lifetime, in days, of the objects that are subject to the rule.
@@ -1639,7 +1641,7 @@ type LifecycleRule struct {
 	// Specifies the days since the initiation of an incomplete multipart upload that
 	// Amazon S3 will wait before permanently removing all parts of the upload. For
 	// more information, see Aborting Incomplete Multipart Uploads Using a Bucket
-	// Lifecycle Policy (https://docs.aws.amazon.com/AmazonS3/latest/dev/mpuoverview.html#mpu-abort-incomplete-mpu-lifecycle-config)
+	// Lifecycle Configuration (https://docs.aws.amazon.com/AmazonS3/latest/dev/mpuoverview.html#mpu-abort-incomplete-mpu-lifecycle-config)
 	// in the Amazon S3 User Guide.
 	AbortIncompleteMultipartUpload *AbortIncompleteMultipartUpload
 
@@ -2025,7 +2027,7 @@ type NotificationConfiguration struct {
 }
 
 // Specifies object key name filtering rules. For information about key name
-// filtering, see Configuring Event Notifications (https://docs.aws.amazon.com/AmazonS3/latest/dev/NotificationHowTo.html)
+// filtering, see Configuring event notifications using object key name filtering (https://docs.aws.amazon.com/AmazonS3/latest/userguide/notification-how-to-filtering.html)
 // in the Amazon S3 User Guide.
 type NotificationConfigurationFilter struct {
 
@@ -2436,7 +2438,7 @@ type QueueConfiguration struct {
 	QueueArn *string
 
 	// Specifies object key name filtering rules. For information about key name
-	// filtering, see Configuring Event Notifications (https://docs.aws.amazon.com/AmazonS3/latest/dev/NotificationHowTo.html)
+	// filtering, see Configuring event notifications using object key name filtering (https://docs.aws.amazon.com/AmazonS3/latest/userguide/notification-how-to-filtering.html)
 	// in the Amazon S3 User Guide.
 	Filter *NotificationConfigurationFilter
 
@@ -2957,11 +2959,12 @@ type ServerSideEncryptionByDefault struct {
 	// Amazon Web Services Key Management Service (KMS) customer Amazon Web Services
 	// KMS key ID to use for the default encryption. This parameter is allowed if and
 	// only if SSEAlgorithm is set to aws:kms . You can specify the key ID or the
-	// Amazon Resource Name (ARN) of the KMS key. However, if you are using encryption
-	// with cross-account or Amazon Web Services service operations you must use a
-	// fully qualified KMS key ARN. For more information, see Using encryption for
-	// cross-account operations (https://docs.aws.amazon.com/AmazonS3/latest/dev/bucket-encryption.html#bucket-encryption-update-bucket-policy)
-	// . For example:
+	// Amazon Resource Name (ARN) of the KMS key. If you use a key ID, you can run into
+	// a LogDestination undeliverable error when creating a VPC flow log. If you are
+	// using encryption with cross-account or Amazon Web Services service operations
+	// you must use a fully qualified KMS key ARN. For more information, see Using
+	// encryption for cross-account operations (https://docs.aws.amazon.com/AmazonS3/latest/dev/bucket-encryption.html#bucket-encryption-update-bucket-policy)
+	// .
 	//   - Key ID: 1234abcd-12ab-34cd-56ef-1234567890ab
 	//   - Key ARN:
 	//   arn:aws:kms:us-east-2:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab
@@ -3197,7 +3200,7 @@ type TopicConfiguration struct {
 	TopicArn *string
 
 	// Specifies object key name filtering rules. For information about key name
-	// filtering, see Configuring Event Notifications (https://docs.aws.amazon.com/AmazonS3/latest/dev/NotificationHowTo.html)
+	// filtering, see Configuring event notifications using object key name filtering (https://docs.aws.amazon.com/AmazonS3/latest/userguide/notification-how-to-filtering.html)
 	// in the Amazon S3 User Guide.
 	Filter *NotificationConfigurationFilter
 

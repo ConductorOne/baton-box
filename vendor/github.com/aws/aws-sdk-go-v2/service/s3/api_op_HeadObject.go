@@ -59,9 +59,10 @@ import (
 //
 // For more information about conditional requests, see RFC 7232 (https://tools.ietf.org/html/rfc7232)
 // . Permissions You need the relevant read object (or version) permission for this
-// operation. For more information, see Specifying Permissions in a Policy (https://docs.aws.amazon.com/AmazonS3/latest/dev/using-with-s3-actions.html)
-// . If the object you request does not exist, the error Amazon S3 returns depends
-// on whether you also have the s3:ListBucket permission.
+// operation. For more information, see Actions, resources, and condition keys for
+// Amazon S3 (https://docs.aws.amazon.com/AmazonS3/latest/dev/list_amazons3.html) .
+// If the object you request does not exist, the error Amazon S3 returns depends on
+// whether you also have the s3:ListBucket permission.
 //   - If you have the s3:ListBucket permission on the bucket, Amazon S3 returns an
 //     HTTP status code 404 ("no such key") error.
 //   - If you don’t have the s3:ListBucket permission, Amazon S3 returns an HTTP
@@ -429,6 +430,9 @@ func (c *Client) addOperationHeadObjectMiddlewares(stack *middleware.Stack, opti
 		return err
 	}
 	if err = addMetadataRetrieverMiddleware(stack); err != nil {
+		return err
+	}
+	if err = awsmiddleware.AddRecursionDetection(stack); err != nil {
 		return err
 	}
 	if err = addHeadObjectUpdateEndpoint(stack, options); err != nil {

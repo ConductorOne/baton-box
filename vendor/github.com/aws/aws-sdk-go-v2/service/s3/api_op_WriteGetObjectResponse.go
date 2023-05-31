@@ -246,7 +246,7 @@ type WriteGetObjectResponseInput struct {
 	ServerSideEncryption types.ServerSideEncryption
 
 	// The integer status code for an HTTP response of a corresponding GetObject
-	// request. Status Codes
+	// request. The following is a list of status codes.
 	//   - 200 - OK
 	//   - 206 - Partial Content
 	//   - 304 - Not Modified
@@ -346,6 +346,9 @@ func (c *Client) addOperationWriteGetObjectResponseMiddlewares(stack *middleware
 		return err
 	}
 	if err = addMetadataRetrieverMiddleware(stack); err != nil {
+		return err
+	}
+	if err = awsmiddleware.AddRecursionDetection(stack); err != nil {
 		return err
 	}
 	if err = addWriteGetObjectResponseUpdateEndpoint(stack, options); err != nil {

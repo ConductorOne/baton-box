@@ -29,8 +29,8 @@ import (
 // objects in it. Requests to set ACLs or update ACLs fail and return the
 // AccessControlListNotSupported error code. Requests to read ACLs are still
 // supported. For more information, see Controlling object ownership (https://docs.aws.amazon.com/AmazonS3/latest/userguide/about-object-ownership.html)
-// in the Amazon S3 User Guide. Access Permissions You can set access permissions
-// using one of the following methods:
+// in the Amazon S3 User Guide. Permissions You can set access permissions using
+// one of the following methods:
 //   - Specify a canned ACL with the x-amz-acl request header. Amazon S3 supports a
 //     set of predefined ACLs, known as canned ACLs. Each canned ACL has a predefined
 //     set of grantees and permissions. Specify the canned ACL name as the value of
@@ -90,7 +90,8 @@ import (
 //
 // Versioning The ACL of an object is set at the object version level. By default,
 // PUT sets the ACL of the current version of an object. To set the ACL of a
-// different version, use the versionId subresource. Related Resources
+// different version, use the versionId subresource. The following operations are
+// related to PutObjectAcl :
 //   - CopyObject (https://docs.aws.amazon.com/AmazonS3/latest/API/API_CopyObject.html)
 //   - GetObject (https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html)
 func (c *Client) PutObjectAcl(ctx context.Context, params *PutObjectAclInput, optFns ...func(*Options)) (*PutObjectAclOutput, error) {
@@ -271,6 +272,9 @@ func (c *Client) addOperationPutObjectAclMiddlewares(stack *middleware.Stack, op
 		return err
 	}
 	if err = addMetadataRetrieverMiddleware(stack); err != nil {
+		return err
+	}
+	if err = awsmiddleware.AddRecursionDetection(stack); err != nil {
 		return err
 	}
 	if err = addPutObjectAclInputChecksumMiddlewares(stack, options); err != nil {

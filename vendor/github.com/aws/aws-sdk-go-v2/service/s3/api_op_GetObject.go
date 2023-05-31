@@ -95,7 +95,7 @@ import (
 //   - response-content-disposition
 //   - response-content-encoding
 //
-// Additional Considerations about Request Headers If both of the If-Match and
+// Overriding Response Header Values If both of the If-Match and
 // If-Unmodified-Since headers are present in the request as follows: If-Match
 // condition evaluates to true , and; If-Unmodified-Since condition evaluates to
 // false ; then, S3 returns 200 OK and the data requested. If both of the
@@ -443,6 +443,9 @@ func (c *Client) addOperationGetObjectMiddlewares(stack *middleware.Stack, optio
 		return err
 	}
 	if err = addMetadataRetrieverMiddleware(stack); err != nil {
+		return err
+	}
+	if err = awsmiddleware.AddRecursionDetection(stack); err != nil {
 		return err
 	}
 	if err = addGetObjectOutputChecksumMiddlewares(stack, options); err != nil {

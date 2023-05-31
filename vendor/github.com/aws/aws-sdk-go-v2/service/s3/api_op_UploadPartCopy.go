@@ -64,7 +64,7 @@ import (
 // version for the x-amz-copy-source . You can optionally specify a specific
 // version of the source object to copy by adding the versionId subresource as
 // shown in the following example: x-amz-copy-source:
-// /bucket/object?versionId=version id Special Errors
+// /bucket/object?versionId=version id Special errors
 //   - Code: NoSuchUpload
 //   - Cause: The specified multipart upload does not exist. The upload ID might
 //     be invalid, or the multipart upload might have been aborted or completed.
@@ -74,7 +74,7 @@ import (
 //     source.
 //   - HTTP Status Code: 400 Bad Request
 //
-// Related Resources
+// The following operations are related to UploadPartCopy :
 //   - CreateMultipartUpload (https://docs.aws.amazon.com/AmazonS3/latest/API/API_CreateMultipartUpload.html)
 //   - UploadPart (https://docs.aws.amazon.com/AmazonS3/latest/API/API_UploadPart.html)
 //   - CompleteMultipartUpload (https://docs.aws.amazon.com/AmazonS3/latest/API/API_CompleteMultipartUpload.html)
@@ -332,6 +332,9 @@ func (c *Client) addOperationUploadPartCopyMiddlewares(stack *middleware.Stack, 
 		return err
 	}
 	if err = addMetadataRetrieverMiddleware(stack); err != nil {
+		return err
+	}
+	if err = awsmiddleware.AddRecursionDetection(stack); err != nil {
 		return err
 	}
 	if err = addUploadPartCopyUpdateEndpoint(stack, options); err != nil {

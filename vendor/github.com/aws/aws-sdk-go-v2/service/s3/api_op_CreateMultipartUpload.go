@@ -25,7 +25,7 @@ import (
 // lifecycle configuration. Otherwise, the incomplete multipart upload becomes
 // eligible for an abort action and Amazon S3 aborts the multipart upload. For more
 // information, see Aborting Incomplete Multipart Uploads Using a Bucket Lifecycle
-// Policy (https://docs.aws.amazon.com/AmazonS3/latest/dev/mpuoverview.html#mpu-abort-incomplete-mpu-lifecycle-config)
+// Configuration (https://docs.aws.amazon.com/AmazonS3/latest/dev/mpuoverview.html#mpu-abort-incomplete-mpu-lifecycle-config)
 // . For information about the permissions required to use the multipart upload
 // API, see Multipart Upload and Permissions (https://docs.aws.amazon.com/AmazonS3/latest/dev/mpuAndPermissions.html)
 // . For request signing, multipart upload is just a series of regular requests.
@@ -59,7 +59,7 @@ import (
 // your own encryption key, the request headers you provide in UploadPart (https://docs.aws.amazon.com/AmazonS3/latest/API/API_UploadPart.html)
 // and UploadPartCopy (https://docs.aws.amazon.com/AmazonS3/latest/API/API_UploadPartCopy.html)
 // requests must match the headers you used in the request to initiate the upload
-// by using CreateMultipartUpload . you can request that Amazon S3 save the
+// by using CreateMultipartUpload . You can request that Amazon S3 save the
 // uploaded parts encrypted with server-side encryption with an Amazon S3 managed
 // key (SSE-S3), an Key Management Service (KMS) key (SSE-KMS), or a
 // customer-provided encryption key (SSE-C). To perform a multipart upload with
@@ -350,7 +350,7 @@ type CreateMultipartUploadOutput struct {
 	// object name in the request, the response includes this header. The header
 	// indicates when the initiated multipart upload becomes eligible for an abort
 	// operation. For more information, see Aborting Incomplete Multipart Uploads
-	// Using a Bucket Lifecycle Policy (https://docs.aws.amazon.com/AmazonS3/latest/dev/mpuoverview.html#mpu-abort-incomplete-mpu-lifecycle-config)
+	// Using a Bucket Lifecycle Configuration (https://docs.aws.amazon.com/AmazonS3/latest/dev/mpuoverview.html#mpu-abort-incomplete-mpu-lifecycle-config)
 	// . The response also includes the x-amz-abort-rule-id header that provides the
 	// ID of the lifecycle configuration rule that defines this action.
 	AbortDate *time.Time
@@ -480,6 +480,9 @@ func (c *Client) addOperationCreateMultipartUploadMiddlewares(stack *middleware.
 		return err
 	}
 	if err = addMetadataRetrieverMiddleware(stack); err != nil {
+		return err
+	}
+	if err = awsmiddleware.AddRecursionDetection(stack); err != nil {
 		return err
 	}
 	if err = addCreateMultipartUploadUpdateEndpoint(stack, options); err != nil {

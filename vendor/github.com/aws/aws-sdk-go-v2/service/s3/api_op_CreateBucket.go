@@ -84,7 +84,7 @@ import (
 //   - Object Lock - If ObjectLockEnabledForBucket is set to true in your
 //     CreateBucket request, s3:PutBucketObjectLockConfiguration and
 //     s3:PutBucketVersioning permissions are required.
-//   - S3 Object Ownership - If your CreateBucket request includes the the
+//   - S3 Object Ownership - If your CreateBucket request includes the
 //     x-amz-object-ownership header, s3:PutBucketOwnershipControls permission is
 //     required.
 //
@@ -222,6 +222,9 @@ func (c *Client) addOperationCreateBucketMiddlewares(stack *middleware.Stack, op
 		return err
 	}
 	if err = addMetadataRetrieverMiddleware(stack); err != nil {
+		return err
+	}
+	if err = awsmiddleware.AddRecursionDetection(stack); err != nil {
 		return err
 	}
 	if err = addCreateBucketUpdateEndpoint(stack, options); err != nil {
