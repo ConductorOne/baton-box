@@ -63,7 +63,7 @@ func New(ctx context.Context, clientId string, clientSecret string, enterpriseId
 func (b *Box) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error) {
 	return &v2.ConnectorMetadata{
 		DisplayName: "Box",
-		Description: "Connector sycing users, groups, enterprise and roles from Box to Baton",
+		Description: "Connector syncing users, groups, enterprise and roles from Box to Baton",
 	}, nil
 }
 
