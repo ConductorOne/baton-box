@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ConductorOne/baton-box/pkg/box"
+	"github.com/conductorone/baton-box/pkg/box"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
@@ -63,7 +63,7 @@ func New(ctx context.Context, clientId string, clientSecret string, enterpriseId
 func (b *Box) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error) {
 	return &v2.ConnectorMetadata{
 		DisplayName: "Box",
-		Description: "Connector sycing users, groups, enterprise and roles from Box to Baton",
+		Description: "Connector syncing users, groups, enterprise and roles from Box to Baton",
 	}, nil
 }
 
