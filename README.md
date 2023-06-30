@@ -30,7 +30,7 @@ baton resources
 ## docker
 
 ```
-docker run --rm -v $(pwd):/out -e BATON_CLIENT_ID=clientId BATON_CLIENT_SECRET=clientSecret BATON_ENTERPRISE_ID=enterpriseId ghcr.io/conductorone/baton-box:latest -f "/out/sync.c1z"
+docker run --rm -v $(pwd):/out -e BATON_BOX_CLIENT_ID=clientId BATON_BOX_CLIENT_SECRET=clientSecret BATON_ENTERPRISE_ID=enterpriseId ghcr.io/conductorone/baton-box:latest -f "/out/sync.c1z"
 docker run --rm -v $(pwd):/out ghcr.io/conductorone/baton:latest -f "/out/sync.c1z" resources
 ```
 
