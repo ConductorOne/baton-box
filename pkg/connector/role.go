@@ -30,7 +30,7 @@ var roles = map[string]string{
 
 // Create a new connector resource for a Box role.
 func roleResource(ctx context.Context, role string, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
-	roleDisplayName := titleCaser.String(role)
+	roleDisplayName := titleCase(role)
 	profile := map[string]interface{}{
 		"role_name": roleDisplayName,
 		"role_id":   role,
