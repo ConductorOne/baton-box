@@ -96,7 +96,8 @@ func (g *groupResourceType) Grants(ctx context.Context, resource *v2.Resource, t
 	}
 
 	for _, groupMembership := range groupMemberships {
-		ur, err := userResource(&groupMembership.User, resource.Id)
+		groupMembershipCopy := groupMembership
+		ur, err := userResource(&groupMembershipCopy.User, resource.Id)
 		if err != nil {
 			return nil, "", nil, err
 		}
