@@ -33,7 +33,7 @@ func validateConfig(ctx context.Context, cfg *config) error {
 
 // cmdFlags sets the cmdFlags required for the connector.
 func cmdFlags(cmd *cobra.Command) {
-	cmd.PersistentFlags().String("box-client-id", "", "Client ID used to authenticate to the Box API. ($BATON_BOX)_CLIENT_ID)")
+	cmd.PersistentFlags().String("box-client-id", "", "Client ID used to authenticate to the Box API. ($BATON_BOX_CLIENT_ID)")
 	cmd.PersistentFlags().String("box-client-secret", "", "Client Secret used to authenticate to the Box API. ($BATON_BOX_CLIENT_SECRET)")
 	cmd.PersistentFlags().String("enterprise-id", "", "ID of your Box enterprise. ($BATON_ENTERPRISE_ID)")
 }
