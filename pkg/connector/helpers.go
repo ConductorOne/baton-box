@@ -8,7 +8,11 @@ import (
 	"golang.org/x/text/language"
 )
 
-var titleCaser = cases.Title(language.English)
+func titleCase(s string) string {
+	titleCaser := cases.Title(language.English)
+
+	return titleCaser.String(s)
+}
 
 // Populate entitlement options for a 1password resource.
 func PopulateOptions(displayName, permission, resource string) []ent.EntitlementOption {
