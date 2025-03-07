@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -67,7 +68,6 @@ func RequestAccessToken(ctx context.Context, clientID string, clientSecret strin
 	if err != nil {
 		return "", err
 	}
-
 	authUrl := fmt.Sprint(baseUrl, "/oauth2/token")
 	data := url.Values{}
 	data.Add("client_id", clientID)
@@ -88,8 +88,15 @@ func RequestAccessToken(ctx context.Context, clientID string, clientSecret strin
 	if err != nil {
 		return "", err
 	}
-
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return "", err
+		}
+		return "", fmt.Errorf("failed to get access token: %s status: %s", string(body), resp.Status)
+	}
 
 	var res struct {
 		AccessToken string `json:"access_token"`
