@@ -8,20 +8,43 @@ import (
 	"os"
 
 	"github.com/aws/smithy-go"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.opentelemetry.io/otel"
+	"go.uber.org/zap"
+
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/us3"
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.uber.org/zap"
 )
 
+var tracer = otel.Tracer("baton-sdk/pkg.dotc1z.manager.s3")
+
 type s3Manager struct {
-	client   *us3.S3Client
-	fileName string
-	tmpFile  string
+	client         *us3.S3Client
+	fileName       string
+	tmpFile        string
+	tmpDir         string
+	decoderOptions []dotc1z.DecoderOption
+}
+
+type Option func(*s3Manager)
+
+func WithTmpDir(tmpDir string) Option {
+	return func(o *s3Manager) {
+		o.tmpDir = tmpDir
+	}
+}
+
+func WithDecoderOptions(opts ...dotc1z.DecoderOption) Option {
+	return func(o *s3Manager) {
+		o.decoderOptions = opts
+	}
 }
 
 func (s *s3Manager) copyToTempFile(ctx context.Context, r io.Reader) error {
-	f, err := os.CreateTemp("", "sync-*.c1z")
+	_, span := tracer.Start(ctx, "s3Manager.copyToTempFile")
+	defer span.End()
+
+	f, err := os.CreateTemp(s.tmpDir, "sync-*.c1z")
 	if err != nil {
 		return err
 	}
@@ -30,10 +53,29 @@ func (s *s3Manager) copyToTempFile(ctx context.Context, r io.Reader) error {
 	s.tmpFile = f.Name()
 
 	if r != nil {
-		_, err = io.Copy(f, r)
+		written, err := io.Copy(f, r)
 		if err != nil {
 			_ = f.Close()
 			return err
+		}
+
+		// CRITICAL: Sync to ensure all data is written before file is used.
+		// This is especially important on ZFS ARC where writes may be cached
+		// and reads can happen before buffers are flushed to disk.
+		if err := f.Sync(); err != nil {
+			_ = f.Close()
+			return fmt.Errorf("failed to sync temp file: %w", err)
+		}
+
+		// Verify file size matches what we wrote (defensive check)
+		stat, err := f.Stat()
+		if err != nil {
+			_ = f.Close()
+			return fmt.Errorf("failed to stat temp file: %w", err)
+		}
+		if stat.Size() != written {
+			_ = f.Close()
+			return fmt.Errorf("file size mismatch: wrote %d bytes but file is %d bytes", written, stat.Size())
 		}
 	}
 
@@ -42,6 +84,9 @@ func (s *s3Manager) copyToTempFile(ctx context.Context, r io.Reader) error {
 
 // LoadRaw loads the file from S3 and returns an io.Reader for the contents.
 func (s *s3Manager) LoadRaw(ctx context.Context) (io.ReadCloser, error) {
+	ctx, span := tracer.Start(ctx, "s3Manager.LoadRaw")
+	defer span.End()
+
 	out, err := s.client.Get(ctx, s.fileName)
 	if err != nil {
 		var ae smithy.APIError
@@ -72,6 +117,9 @@ func (s *s3Manager) LoadRaw(ctx context.Context) (io.ReadCloser, error) {
 
 // LoadC1Z gets a file from the AWS S3 bucket and copies it to a temp file.
 func (s *s3Manager) LoadC1Z(ctx context.Context) (*dotc1z.C1File, error) {
+	ctx, span := tracer.Start(ctx, "s3Manager.LoadC1Z")
+	defer span.End()
+
 	l := ctxzap.Extract(ctx)
 
 	out, err := s.client.Get(ctx, s.fileName)
@@ -94,15 +142,26 @@ func (s *s3Manager) LoadC1Z(ctx context.Context) (*dotc1z.C1File, error) {
 		return nil, err
 	}
 
-	return dotc1z.NewC1ZFile(ctx, s.tmpFile)
+	opts := []dotc1z.C1ZOption{
+		dotc1z.WithTmpDir(s.tmpDir),
+		dotc1z.WithPragma("journal_mode", "WAL"),
+	}
+	if len(s.decoderOptions) > 0 {
+		opts = append(opts, dotc1z.WithDecoderOptions(s.decoderOptions...))
+	}
+	return dotc1z.NewC1ZFile(ctx, s.tmpFile, opts...)
 }
 
 // SaveC1Z saves a file to the AWS S3 bucket.
 func (s *s3Manager) SaveC1Z(ctx context.Context) error {
+	ctx, span := tracer.Start(ctx, "s3Manager.SaveC1Z")
+	defer span.End()
+
 	f, err := os.Open(s.tmpFile)
 	if err != nil {
 		return err
 	}
+	defer f.Close()
 
 	if s.client == nil {
 		return fmt.Errorf("attempting to save to s3 without a valid client")
@@ -121,6 +180,9 @@ func (s *s3Manager) SaveC1Z(ctx context.Context) error {
 }
 
 func (s *s3Manager) Close(ctx context.Context) error {
+	_, span := tracer.Start(ctx, "s3Manager.Close")
+	defer span.End()
+
 	err := os.Remove(s.tmpFile)
 	if err != nil {
 		return err
@@ -130,7 +192,7 @@ func (s *s3Manager) Close(ctx context.Context) error {
 }
 
 // NewS3Manager returns a new `s3Manager` that uses the given `s3Uri`.
-func NewS3Manager(ctx context.Context, s3Uri string) (*s3Manager, error) {
+func NewS3Manager(ctx context.Context, s3Uri string, opts ...Option) (*s3Manager, error) {
 	l := ctxzap.Extract(ctx)
 
 	fileName, s3Client, err := us3.NewClientFromURI(ctx, s3Uri)
@@ -141,6 +203,10 @@ func NewS3Manager(ctx context.Context, s3Uri string) (*s3Manager, error) {
 	manager := &s3Manager{
 		client:   s3Client,
 		fileName: fileName,
+	}
+
+	for _, opt := range opts {
+		opt(manager)
 	}
 
 	l.Debug("created new s3 file manager", zap.String("filename", fileName))
