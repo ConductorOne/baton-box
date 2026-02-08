@@ -45,19 +45,19 @@ type Box struct {
 	client *box.Client
 }
 
-func New(ctx context.Context, clientId string, clientSecret string, enterpriseId string) (*Box, error) {
+func New(ctx context.Context, clientId string, clientSecret string, enterpriseId string, baseURL string) (*Box, error) {
 	httpClient, err := uhttp.NewClient(ctx, uhttp.WithLogger(true, ctxzap.Extract(ctx)))
 	if err != nil {
 		return nil, err
 	}
 
-	token, err := box.RequestAccessToken(ctx, clientId, clientSecret, enterpriseId)
+	token, err := box.RequestAccessToken(ctx, clientId, clientSecret, enterpriseId, baseURL)
 	if err != nil {
 		return nil, fmt.Errorf("box-connector: failed to get token: %w", err)
 	}
 
 	return &Box{
-		client: box.NewClient(httpClient, token),
+		client: box.NewClient(httpClient, token, baseURL),
 	}, nil
 }
 
