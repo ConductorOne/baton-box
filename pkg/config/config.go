@@ -26,6 +26,7 @@ var (
 	BaseURLField = field.StringField(
 		"base-url",
 		field.WithDescription("Override the Box API URL (for testing or enterprise deployments)"),
+		field.WithHidden(true),
 	)
 )
 
