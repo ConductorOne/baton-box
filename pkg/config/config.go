@@ -27,6 +27,7 @@ var (
 		"base-url",
 		field.WithDescription("Override the Box API URL (for testing or enterprise deployments)"),
 		field.WithHidden(true),
+		field.WithExportTarget(field.ExportTargetCLIOnly),
 	)
 )
 
