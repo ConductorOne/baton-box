@@ -14,7 +14,7 @@ import (
 
 var (
 	resourceTypeUser = &v2.ResourceType{
-		Id:          "user",
+		Id:          user,
 		DisplayName: "User",
 		Traits: []v2.ResourceType_Trait{
 			v2.ResourceType_TRAIT_USER,
@@ -74,7 +74,7 @@ func (b *Box) Validate(ctx context.Context) (annotations.Annotations, error) {
 		return nil, fmt.Errorf("box-connector: failed to authenticate: %w", err)
 	}
 
-	if currentUser.Role != "admin" {
+	if currentUser.Role != admin {
 		return nil, fmt.Errorf("box-connector: user is not an admin")
 	}
 

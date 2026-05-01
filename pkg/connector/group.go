@@ -16,6 +16,7 @@ import (
 const (
 	member = "member"
 	admin  = "admin"
+	user   = "user"
 )
 
 type groupResourceType struct {

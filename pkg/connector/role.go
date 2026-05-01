@@ -23,9 +23,9 @@ func (o *roleResourceType) ResourceType(_ context.Context) *v2.ResourceType {
 }
 
 var roles = map[string]string{
-	"admin":   "admin",
+	admin:     admin,
 	"coadmin": "co-admin",
-	"user":    "user",
+	user:      user,
 }
 
 // Create a new connector resource for a Box role.
