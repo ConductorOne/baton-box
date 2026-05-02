@@ -23,6 +23,12 @@ var (
 		field.WithDescription("ID of your Box enterprise."),
 		field.WithRequired(true),
 	)
+	BaseURLField = field.StringField(
+		"base-url",
+		field.WithDescription("Override the Box API URL (for testing or enterprise deployments)"),
+		field.WithHidden(true),
+		field.WithExportTarget(field.ExportTargetCLIOnly),
+	)
 )
 
 //go:generate go run ./gen
@@ -30,4 +36,5 @@ var Config = field.NewConfiguration([]field.SchemaField{
 	ClientID,
 	ClientSecret,
 	EnterpriseID,
+	BaseURLField,
 })

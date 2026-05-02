@@ -14,7 +14,7 @@ import (
 
 var (
 	resourceTypeUser = &v2.ResourceType{
-		Id:          "user",
+		Id:          user,
 		DisplayName: "User",
 		Traits: []v2.ResourceType_Trait{
 			v2.ResourceType_TRAIT_USER,
@@ -45,19 +45,19 @@ type Box struct {
 	client *box.Client
 }
 
-func New(ctx context.Context, clientId string, clientSecret string, enterpriseId string) (*Box, error) {
+func New(ctx context.Context, clientId string, clientSecret string, enterpriseId string, baseURL string) (*Box, error) {
 	httpClient, err := uhttp.NewClient(ctx, uhttp.WithLogger(true, ctxzap.Extract(ctx)))
 	if err != nil {
 		return nil, err
 	}
 
-	token, err := box.RequestAccessToken(ctx, clientId, clientSecret, enterpriseId)
+	token, err := box.RequestAccessToken(ctx, clientId, clientSecret, enterpriseId, baseURL)
 	if err != nil {
 		return nil, fmt.Errorf("box-connector: failed to get token: %w", err)
 	}
 
 	return &Box{
-		client: box.NewClient(httpClient, token),
+		client: box.NewClient(httpClient, token, baseURL),
 	}, nil
 }
 
@@ -74,7 +74,7 @@ func (b *Box) Validate(ctx context.Context) (annotations.Annotations, error) {
 		return nil, fmt.Errorf("box-connector: failed to authenticate: %w", err)
 	}
 
-	if currentUser.Role != "admin" {
+	if currentUser.Role != admin {
 		return nil, fmt.Errorf("box-connector: user is not an admin")
 	}
 

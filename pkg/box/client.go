@@ -17,13 +17,14 @@ import (
 type Client struct {
 	httpClient *http.Client
 	token      string
+	baseURL    string
 }
 
 const (
-	baseUrl       = "https://api.box.com"
-	defaultOffset = 0
-	defaultLimit  = 200
-	errorType     = "error"
+	defaultBaseURL = "https://api.box.com"
+	defaultOffset  = 0
+	defaultLimit   = 200
+	errorType      = "error"
 )
 
 type paginationData struct {
@@ -44,10 +45,14 @@ var ErrorResponse struct {
 	Status    int64  `json:"status"`
 }
 
-func NewClient(httpClient *http.Client, token string) *Client {
+func NewClient(httpClient *http.Client, token string, baseURL string) *Client {
+	if baseURL == "" {
+		baseURL = defaultBaseURL
+	}
 	return &Client{
 		httpClient: httpClient,
 		token:      token,
+		baseURL:    baseURL,
 	}
 }
 
@@ -63,12 +68,15 @@ func paginationQuery(offset int, limit int) url.Values {
 }
 
 // RequestAccessToken creates bearer token needed to use the Box API.
-func RequestAccessToken(ctx context.Context, clientID string, clientSecret string, enterpriseId string) (string, error) {
+func RequestAccessToken(ctx context.Context, clientID string, clientSecret string, enterpriseId string, baseURL string) (string, error) {
+	if baseURL == "" {
+		baseURL = defaultBaseURL
+	}
 	httpClient, err := uhttp.NewClient(ctx, uhttp.WithLogger(true, ctxzap.Extract(ctx)))
 	if err != nil {
 		return "", err
 	}
-	authUrl := fmt.Sprint(baseUrl, "/oauth2/token")
+	authUrl := fmt.Sprint(baseURL, "/oauth2/token")
 	data := url.Values{}
 	data.Add("client_id", clientID)
 	data.Add("client_secret", clientSecret)
@@ -113,7 +121,7 @@ func (c *Client) GetUsers(ctx context.Context) ([]User, error) {
 	var allUsers []User
 	offset := defaultOffset
 	totalReturned := 0
-	usersUrl := fmt.Sprint(baseUrl, "/2.0/users")
+	usersUrl := fmt.Sprint(c.baseURL, "/2.0/users")
 
 	var res struct {
 		paginationData
@@ -149,7 +157,7 @@ func (c *Client) GetGroups(ctx context.Context) ([]Group, error) {
 	var allGroups []Group
 	offset := defaultOffset
 	totalReturned := 0
-	usersUrl := fmt.Sprint(baseUrl, "/2.0/groups")
+	usersUrl := fmt.Sprint(c.baseURL, "/2.0/groups")
 
 	var res struct {
 		paginationData
@@ -185,7 +193,7 @@ func (c *Client) GetGroupMemberships(ctx context.Context, groupId string) ([]Gro
 	var allGroupMemberships []GroupMembership
 	offset := defaultOffset
 	totalReturned := 0
-	usersUrl := fmt.Sprintf("%s/2.0/groups/%s/memberships", baseUrl, groupId)
+	usersUrl := fmt.Sprintf("%s/2.0/groups/%s/memberships", c.baseURL, groupId)
 
 	var res struct {
 		paginationData
@@ -216,7 +224,7 @@ func (c *Client) GetGroupMemberships(ctx context.Context, groupId string) ([]Gro
 
 // GetCurrentUserWithEnterprise returns current user with enterprise data.
 func (c *Client) GetCurrentUserWithEnterprise(ctx context.Context) (User, error) {
-	usersUrl := fmt.Sprint(baseUrl, "/2.0/users/me")
+	usersUrl := fmt.Sprint(c.baseURL, "/2.0/users/me")
 	params := url.Values{}
 	params.Set("fields", "enterprise,role,name")
 
@@ -233,7 +241,7 @@ func (c *Client) GetCurrentUserWithEnterprise(ctx context.Context) (User, error)
 
 // GetGroup returns Box group details.
 func (c *Client) GetGroup(ctx context.Context, groupId string) (Group, error) {
-	usersUrl := fmt.Sprint(baseUrl, "/2.0/groups/", groupId)
+	usersUrl := fmt.Sprint(c.baseURL, "/2.0/groups/", groupId)
 
 	var res Group
 	params := url.Values{}
