@@ -16,6 +16,10 @@ else
 	BUILD_TAGS=
 endif
 
+.PHONY: build
+build: $(GENERATED_CONF)
+	go build ${BUILD_TAGS} -o ${OUTPUT_PATH} ./cmd/baton-box
+
 $(GENERATED_CONF): pkg/config/config.go go.mod
 	@echo "Generating $(GENERATED_CONF)..."
 	go generate ./pkg/config
@@ -23,18 +27,14 @@ $(GENERATED_CONF): pkg/config/config.go go.mod
 .PHONY: generate
 generate: $(GENERATED_CONF)
 
-.PHONY: build
-build: $(GENERATED_CONF)
-	go build ${BUILD_TAGS} -o ${OUTPUT_PATH} ./cmd/baton-box
-
 .PHONY: update-deps
 update-deps:
 	go get -d -u ./...
 	go mod tidy -v
 	go mod vendor
 
-.PHONY: add-dep
-add-dep:
+.PHONY: add-deps
+add-deps:
 	go mod tidy -v
 	go mod vendor
 
