@@ -5,11 +5,15 @@ import (
 	"fmt"
 	"strings"
 
+	"errors"
+
 	"github.com/conductorone/baton-box/pkg/box"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type userResourceType struct {
@@ -131,12 +135,12 @@ func (o *userResourceType) CreateAccount(
 
 	login, _ := pMap[fieldLogin].(string)
 	if login == "" {
-		return nil, nil, nil, fmt.Errorf("baton-box: create account requires a login email")
+		return nil, nil, nil, status.Error(codes.InvalidArgument, "baton-box: create account requires a login email")
 	}
 
 	name, _ := pMap[fieldName].(string)
 	if name == "" {
-		return nil, nil, nil, fmt.Errorf("baton-box: create account requires a name")
+		return nil, nil, nil, status.Error(codes.InvalidArgument, "baton-box: create account requires a name")
 	}
 
 	var (
@@ -151,7 +155,8 @@ func (o *userResourceType) CreateAccount(
 		Status: "active",
 	})
 	if createErr != nil {
-		if !strings.Contains(createErr.Error(), "code: user_login_already_used") {
+		var apiErr *box.APIError
+		if !errors.As(createErr, &apiErr) || apiErr.Code != "user_login_already_used" {
 			return nil, nil, nil, fmt.Errorf("baton-box: failed to create user: %w", createErr)
 		}
 
@@ -190,7 +195,8 @@ func (o *userResourceType) CreateAccount(
 func (o *userResourceType) Delete(ctx context.Context, resourceID *v2.ResourceId, _ *v2.ResourceId) (annotations.Annotations, error) {
 	userID := resourceID.GetResource()
 	if err := o.client.DeleteUser(ctx, userID); err != nil {
-		if strings.Contains(err.Error(), "code: not_found") {
+		var apiErr *box.APIError
+		if errors.As(err, &apiErr) && apiErr.Code == "not_found" {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("baton-box: failed to delete user %s: %w", userID, err)

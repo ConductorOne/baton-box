@@ -33,6 +33,17 @@ type paginationData struct {
 	TotalCount int `json:"total_count"`
 }
 
+// APIError carries a structured Box API error so callers can check error codes with errors.As.
+type APIError struct {
+	Message string
+	Code    string
+	Status  int
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("%s (code: %s, status: %d)", e.Message, e.Code, e.Status)
+}
+
 func NewClient(httpClient *http.Client, token string, baseURL string) *Client {
 	if baseURL == "" {
 		baseURL = defaultBaseURL
@@ -313,7 +324,7 @@ func (c *Client) DeleteUser(ctx context.Context, userID string) error {
 		if decErr := json.NewDecoder(resp.Body).Decode(&errResp); decErr != nil {
 			return fmt.Errorf("delete request failed with status %d", resp.StatusCode)
 		}
-		return fmt.Errorf("%s (code: %s, status: %d)", errResp.Message, errResp.Code, resp.StatusCode)
+		return &APIError{Message: errResp.Message, Code: errResp.Code, Status: resp.StatusCode}
 	}
 
 	return nil
@@ -355,7 +366,7 @@ func (c *Client) doWrite(ctx context.Context, method, rawURL string, body interf
 		if decErr := json.NewDecoder(resp.Body).Decode(&errResp); decErr != nil {
 			return fmt.Errorf("request failed with status %d", resp.StatusCode)
 		}
-		return fmt.Errorf("%s (code: %s, status: %d)", errResp.Message, errResp.Code, resp.StatusCode)
+		return &APIError{Message: errResp.Message, Code: errResp.Code, Status: resp.StatusCode}
 	}
 
 	if res != nil && resp.StatusCode != http.StatusNoContent {
@@ -394,7 +405,7 @@ func (c *Client) doRequest(ctx context.Context, url string, res interface{}, par
 		if decErr := json.NewDecoder(resp.Body).Decode(&errResp); decErr != nil {
 			return fmt.Errorf("request failed with status %d", resp.StatusCode)
 		}
-		return fmt.Errorf("%s (code: %s, status: %d)", errResp.Message, errResp.Code, resp.StatusCode)
+		return &APIError{Message: errResp.Message, Code: errResp.Code, Status: resp.StatusCode}
 	}
 
 	return json.NewDecoder(resp.Body).Decode(res)

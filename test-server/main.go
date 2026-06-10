@@ -88,6 +88,18 @@ const (
 	// Seeded group IDs.
 	seedGroupEngineeringID = "grp-001"
 	seedGroupFinanceID     = "grp-002"
+
+	// Box resource type strings and role values.
+	statusActive = "active"
+	roleMember   = "member"
+	roleUser     = "user"
+	typeGroup    = "group"
+
+	// JSON field keys used in response maps.
+	keyType   = "type"
+	keyName   = "name"
+	keyRole   = "role"
+	keyStatus = "status"
 )
 
 // ─── server ───────────────────────────────────────────────────────────────────
@@ -118,20 +130,20 @@ func (s *server) seed() {
 	// Users covering all three role values and both status values.
 	s.users[seedUserAliceID] = &mockUser{
 		ID: seedUserAliceID, Name: "Alice Anderson", Login: "alice@example.com",
-		Role: "admin", Status: "active",
+		Role: "admin", Status: statusActive,
 	}
 	s.users[seedUserBobID] = &mockUser{
 		ID: seedUserBobID, Name: "Bob Brown", Login: "bob@example.com",
-		Role: "coadmin", Status: "active",
+		Role: "coadmin", Status: statusActive,
 	}
 	s.users[seedUserCarolID] = &mockUser{
 		ID: seedUserCarolID, Name: "Carol Clark", Login: "carol@example.com",
-		Role: "user", Status: "active",
+		Role: roleUser, Status: statusActive,
 	}
 	s.users[seedUserDaveID] = &mockUser{
 		// inactive — exercises STATUS_DISABLED path in userResource
 		ID: seedUserDaveID, Name: "Dave Davis", Login: "dave@example.com",
-		Role: "user", Status: "inactive",
+		Role: roleUser, Status: "inactive",
 	}
 
 	s.groups[seedGroupEngineeringID] = &mockGroup{
@@ -146,11 +158,11 @@ func (s *server) seed() {
 	// Memberships — role "admin" within a group means group admin, not enterprise admin.
 	s.memberships[seedGroupEngineeringID] = []*mockMembership{
 		{ID: "gm-001", Role: "admin", UserID: seedUserAliceID},
-		{ID: "gm-002", Role: "member", UserID: seedUserBobID},
-		{ID: "gm-003", Role: "member", UserID: seedUserCarolID},
+		{ID: "gm-002", Role: roleMember, UserID: seedUserBobID},
+		{ID: "gm-003", Role: roleMember, UserID: seedUserCarolID},
 	}
 	s.memberships[seedGroupFinanceID] = []*mockMembership{
-		{ID: "gm-004", Role: "member", UserID: seedUserDaveID},
+		{ID: "gm-004", Role: roleMember, UserID: seedUserDaveID},
 	}
 }
 
@@ -248,10 +260,10 @@ func (s *server) createUser(w http.ResponseWriter, r *http.Request) {
 
 	role, status := body.Role, body.Status
 	if role == "" {
-		role = "user"
+		role = roleUser
 	}
 	if status == "" {
-		status = "active"
+		status = statusActive
 	}
 
 	u := &mockUser{ID: id, Name: body.Name, Login: body.Login, Role: role, Status: status}
@@ -320,7 +332,7 @@ func (s *server) updateUser(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 
-	if v, _ := updates["name"].(string); v != "" {
+	if v, _ := updates[keyName].(string); v != "" {
 		u.Name = v
 	}
 	if v, _ := updates["login"].(string); v != "" {
@@ -332,14 +344,14 @@ func (s *server) updateUser(w http.ResponseWriter, r *http.Request, id string) {
 		}
 		u.Login = v
 	}
-	if v, _ := updates["role"].(string); v != "" {
+	if v, _ := updates[keyRole].(string); v != "" {
 		u.Role = v
 	}
-	if v, _ := updates["status"].(string); v != "" {
+	if v, _ := updates[keyStatus].(string); v != "" {
 		u.Status = v
 	}
 
-	log.Printf("updated user %s: %v", id, updates)
+	log.Printf("updated user %q", id) //nolint:gosec // test server only: id from URL path, %q escapes special chars
 	writeJSON(w, http.StatusOK, userToJSON(u, nil))
 }
 
@@ -354,7 +366,7 @@ func (s *server) deleteUser(w http.ResponseWriter, r *http.Request, id string) {
 	}
 
 	delete(s.users, id)
-	log.Printf("deleted user %s", id)
+	log.Printf("deleted user %q", id) //nolint:gosec // test server only: id from URL path, %q escapes special chars
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -440,18 +452,18 @@ func (s *server) listMemberships(w http.ResponseWriter, r *http.Request, groupID
 
 func userToJSON(u *mockUser, ent *mockEnterprise) map[string]interface{} {
 	m := map[string]interface{}{
-		"id":     u.ID,
-		"type":   "user",
-		"name":   u.Name,
-		"login":  u.Login,
-		"role":   u.Role,
-		"status": u.Status,
+		"id":    u.ID,
+		keyType: roleUser,
+		keyName: u.Name,
+		"login": u.Login,
+		keyRole: u.Role,
+		keyStatus: u.Status,
 	}
 	if ent != nil {
 		m["enterprise"] = map[string]interface{}{
 			"id":   ent.ID,
-			"type": "enterprise",
-			"name": ent.Name,
+			keyType: "enterprise",
+			keyName: ent.Name,
 		}
 	}
 	return m
@@ -460,8 +472,8 @@ func userToJSON(u *mockUser, ent *mockEnterprise) map[string]interface{} {
 func groupToJSON(g *mockGroup) map[string]interface{} {
 	return map[string]interface{}{
 		"id":                       g.ID,
-		"type":                     "group",
-		"name":                     g.Name,
+		keyType:                    typeGroup,
+		keyName:                    g.Name,
 		"invitability_level":       g.InvitabilityLevel,
 		"member_viewability_level": g.MemberViewabilityLevel,
 	}
@@ -469,21 +481,21 @@ func groupToJSON(g *mockGroup) map[string]interface{} {
 
 func membershipToJSON(m *mockMembership, u *mockUser, g *mockGroup) map[string]interface{} {
 	return map[string]interface{}{
-		"id":   m.ID,
-		"type": "group_membership",
-		"role": m.Role,
-		"user": map[string]interface{}{
-			"id":     u.ID,
-			"type":   "user",
-			"name":   u.Name,
-			"login":  u.Login,
-			"role":   u.Role,
-			"status": u.Status,
+		"id":      m.ID,
+		keyType:   "group_membership",
+		keyRole:   m.Role,
+		roleUser: map[string]interface{}{
+			"id":    u.ID,
+			keyType: roleUser,
+			keyName: u.Name,
+			"login": u.Login,
+			keyRole: u.Role,
+			keyStatus: u.Status,
 		},
-		"group": map[string]interface{}{
+		typeGroup: map[string]interface{}{
 			"id":   g.ID,
-			"type": "group",
-			"name": g.Name,
+			keyType: typeGroup,
+			keyName: g.Name,
 		},
 	}
 }
@@ -492,9 +504,10 @@ func membershipToJSON(m *mockMembership, u *mockUser, g *mockGroup) map[string]i
 
 // applyPagination reads offset/limit query params and returns start, end, offset, limit.
 // Box uses 0-based offset; the connector terminates when totalReturned >= total_count.
-func applyPagination(total int, r *http.Request) (start, end, offset, limit int) {
+func applyPagination(total int, r *http.Request) (int, int, int, int) {
 	q := r.URL.Query()
-	limit = 200
+	limit := 200
+	offset := 0
 	if v := q.Get("limit"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			limit = n
@@ -505,15 +518,15 @@ func applyPagination(total int, r *http.Request) (start, end, offset, limit int)
 			offset = n
 		}
 	}
-	start = offset
+	start := offset
 	if start > total {
 		start = total
 	}
-	end = start + limit
+	end := start + limit
 	if end > total {
 		end = total
 	}
-	return
+	return start, end, offset, limit
 }
 
 func listResponse(entries []interface{}, total, offset, limit int) map[string]interface{} {
@@ -537,10 +550,10 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 // inspects via strings.Contains(err.Error(), "code: <value>").
 func writeError(w http.ResponseWriter, status int, code, message string) {
 	writeJSON(w, status, map[string]interface{}{
-		"type":    "error",
+		keyType:   "error",
 		"code":    code,
 		"message": message,
-		"status":  status,
+		keyStatus: status,
 	})
 }
 

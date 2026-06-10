@@ -11,6 +11,8 @@ import (
 	ent "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	grant "github.com/conductorone/baton-sdk/pkg/types/grant"
 	resource "github.com/conductorone/baton-sdk/pkg/types/resource"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type roleResourceType struct {
@@ -140,7 +142,7 @@ func (o *roleResourceType) Grant(ctx context.Context, principal *v2.Resource, en
 
 	apiRole := boxRoleKey(roleID)
 	if apiRole == admin {
-		return nil, nil, fmt.Errorf("baton-box: the admin role cannot be assigned via the Box API; use the Box Admin Console instead")
+		return nil, nil, status.Error(codes.InvalidArgument, "baton-box: the admin role cannot be assigned via the Box API; use the Box Admin Console instead")
 	}
 
 	if _, err := o.client.UpdateUser(ctx, userID, map[string]interface{}{fieldRole: apiRole}); err != nil {
@@ -157,7 +159,7 @@ func (o *roleResourceType) Revoke(ctx context.Context, g *v2.Grant) (annotations
 	roleID := g.GetEntitlement().GetResource().GetId().GetResource()
 
 	if roleID == admin {
-		return nil, fmt.Errorf("baton-box: the admin role cannot be modified via the Box API; use the Box Admin Console instead")
+		return nil, status.Error(codes.InvalidArgument, "baton-box: the admin role cannot be modified via the Box API; use the Box Admin Console instead")
 	}
 
 	if roleID == user {
