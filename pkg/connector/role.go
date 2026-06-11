@@ -105,7 +105,11 @@ func (o *roleResourceType) Grants(ctx context.Context, res *v2.Resource, _ resou
 		}
 
 		if res.Id.Resource == roles[user.Role] {
-			permissionGrant := grant.NewGrant(res, member, ur.Id)
+			var grantOpts []grant.GrantOption
+			if res.Id.Resource == admin {
+				grantOpts = append(grantOpts, grant.WithAnnotation(&v2.GrantImmutable{}))
+			}
+			permissionGrant := grant.NewGrant(res, member, ur.Id, grantOpts...)
 			rv = append(rv, permissionGrant)
 		}
 	}
