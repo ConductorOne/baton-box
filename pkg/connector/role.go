@@ -26,12 +26,12 @@ func (o *roleResourceType) ResourceType(_ context.Context) *v2.ResourceType {
 
 var roles = map[string]string{
 	admin:     admin,
-	"coadmin": "co-admin",
+	"coadmin": coadmin,
 	user:      user,
 }
 
 // roleOrder defines a stable iteration order for the roles map.
-var roleOrder = []string{admin, "co-admin", user}
+var roleOrder = []string{admin, coadmin, user}
 
 // Create a new connector resource for a Box role.
 func roleResource(ctx context.Context, role string, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
@@ -93,7 +93,7 @@ func (o *roleResourceType) Entitlements(_ context.Context, res *v2.Resource, _ r
 func (o *roleResourceType) Grants(ctx context.Context, res *v2.Resource, _ resource.SyncOpAttrs) ([]*v2.Grant, *resource.SyncOpResults, error) {
 	users, err := o.client.GetUsers(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("box-connector: failed to list users: %w", err)
+		return nil, nil, fmt.Errorf("baton-box: failed to list users: %w", err)
 	}
 
 	var rv []*v2.Grant
@@ -128,13 +128,14 @@ func roleBuilder(client *box.Client) *roleResourceType {
 var _ connectorbuilder.ResourceProvisionerV2 = (*roleResourceType)(nil)
 
 // boxRoleKey maps a role resource ID (e.g. "co-admin") to the Box API role value (e.g. "coadmin").
-func boxRoleKey(resourceID string) string {
+// Returns false when the resource ID is not a recognised role.
+func boxRoleKey(resourceID string) (string, bool) {
 	for apiKey, displayName := range roles {
 		if displayName == resourceID {
-			return apiKey
+			return apiKey, true
 		}
 	}
-	return resourceID
+	return "", false
 }
 
 // Grant sets a Box user's enterprise role to the granted role.
@@ -144,7 +145,10 @@ func (o *roleResourceType) Grant(ctx context.Context, principal *v2.Resource, en
 	userID := principal.GetId().GetResource()
 	roleID := entitlement.GetResource().GetId().GetResource()
 
-	apiRole := boxRoleKey(roleID)
+	apiRole, ok := boxRoleKey(roleID)
+	if !ok {
+		return nil, nil, status.Errorf(codes.InvalidArgument, "baton-box: unknown role ID %q", roleID)
+	}
 	if apiRole == admin {
 		return nil, nil, status.Error(codes.InvalidArgument, "baton-box: the admin role cannot be assigned via the Box API; use the Box Admin Console instead")
 	}

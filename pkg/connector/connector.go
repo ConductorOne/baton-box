@@ -27,10 +27,12 @@ var (
 		Traits: []v2.ResourceType_Trait{
 			v2.ResourceType_TRAIT_GROUP,
 		},
+		Annotations: annotations.New(capabilityPermissions("Manage groups")),
 	}
 	resourceTypeEnterprise = &v2.ResourceType{
 		Id:          "enterprise",
 		DisplayName: "Enterprise",
+		Annotations: annotations.New(capabilityPermissions("Manage enterprise properties")),
 	}
 	resourceTypeRole = &v2.ResourceType{
 		Id:          fieldRole,
@@ -38,6 +40,7 @@ var (
 		Traits: []v2.ResourceType_Trait{
 			v2.ResourceType_TRAIT_ROLE,
 		},
+		Annotations: annotations.New(capabilityPermissions("Manage users")),
 	}
 )
 
@@ -53,12 +56,14 @@ func New(ctx context.Context, clientId string, clientSecret string, enterpriseId
 
 	token, err := box.RequestAccessToken(ctx, clientId, clientSecret, enterpriseId, baseURL)
 	if err != nil {
-		return nil, fmt.Errorf("box-connector: failed to get token: %w", err)
+		return nil, fmt.Errorf("baton-box: failed to get token: %w", err)
 	}
 
-	return &Box{
-		client: box.NewClient(httpClient, token, baseURL),
-	}, nil
+	client, err := box.NewClient(httpClient, token, baseURL)
+	if err != nil {
+		return nil, err
+	}
+	return &Box{client: client}, nil
 }
 
 func (b *Box) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error) {
@@ -95,11 +100,11 @@ func (b *Box) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error) {
 func (b *Box) Validate(ctx context.Context) (annotations.Annotations, error) {
 	currentUser, err := b.client.GetCurrentUserWithEnterprise(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("box-connector: failed to authenticate: %w", err)
+		return nil, fmt.Errorf("baton-box: failed to authenticate: %w", err)
 	}
 
 	if currentUser.Role != admin {
-		return nil, fmt.Errorf("box-connector: user is not an admin")
+		return nil, fmt.Errorf("baton-box: user is not an admin")
 	}
 
 	return nil, nil

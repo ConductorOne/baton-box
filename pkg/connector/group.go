@@ -12,9 +12,10 @@ import (
 )
 
 const (
-	member = "member"
-	admin  = "admin"
-	user   = "user"
+	member  = "member"
+	admin   = "admin"
+	user    = "user"
+	coadmin = "co-admin"
 
 	fieldLogin  = "login"
 	fieldName   = "name"
@@ -61,7 +62,7 @@ func (g *groupResourceType) List(ctx context.Context, parentId *v2.ResourceId, _
 
 	groups, err := g.client.GetGroups(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("box-connector: failed to list groups: %w", err)
+		return nil, nil, fmt.Errorf("baton-box: failed to list groups: %w", err)
 	}
 
 	var rv []*v2.Resource

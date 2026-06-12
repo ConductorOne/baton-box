@@ -80,7 +80,7 @@ func (o *enterpriseResourceType) Entitlements(_ context.Context, resource *v2.Re
 func (o *enterpriseResourceType) Grants(ctx context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
 	users, err := o.client.GetUsers(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("box-connector: failed to list users: %w", err)
+		return nil, nil, fmt.Errorf("baton-box: failed to list users: %w", err)
 	}
 
 	var rv []*v2.Grant

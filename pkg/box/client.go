@@ -25,6 +25,10 @@ const (
 	defaultBaseURL = "https://api.box.com"
 	defaultOffset  = 0
 	defaultLimit   = 200
+
+	pathUsers       = "/2.0/users"
+	pathGroups      = "/2.0/groups"
+	pathCurrentUser = "/2.0/users/me"
 )
 
 type paginationData struct {
@@ -44,15 +48,18 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("%s (code: %s, status: %d)", e.Message, e.Code, e.Status)
 }
 
-func NewClient(httpClient *http.Client, token string, baseURL string) *Client {
+func NewClient(httpClient *http.Client, token string, baseURL string) (*Client, error) {
 	if baseURL == "" {
 		baseURL = defaultBaseURL
+	}
+	if _, err := url.Parse(baseURL); err != nil {
+		return nil, fmt.Errorf("baton-box: invalid base URL %q: %w", baseURL, err)
 	}
 	return &Client{
 		httpClient: httpClient,
 		token:      token,
-		baseURL:    baseURL,
-	}
+		baseURL:    strings.TrimRight(baseURL, "/"),
+	}, nil
 }
 
 // returns query params with pagination options.
@@ -120,7 +127,7 @@ func (c *Client) GetUsers(ctx context.Context) ([]User, error) {
 	var allUsers []User
 	offset := defaultOffset
 	totalReturned := 0
-	usersUrl := fmt.Sprint(c.baseURL, "/2.0/users")
+	usersUrl := c.baseURL + pathUsers
 
 	var res struct {
 		paginationData
@@ -132,7 +139,7 @@ func (c *Client) GetUsers(ctx context.Context) ([]User, error) {
 		q.Set("fields", "role,name,login,status")
 
 		if err := c.doRequest(ctx, usersUrl, &res, q); err != nil {
-			return nil, fmt.Errorf("failed to get users: %w", err)
+			return nil, fmt.Errorf("baton-box: failed to get users: %w", err)
 		}
 
 		allUsers = append(allUsers, res.Users...)
@@ -153,7 +160,7 @@ func (c *Client) GetGroups(ctx context.Context) ([]Group, error) {
 	var allGroups []Group
 	offset := defaultOffset
 	totalReturned := 0
-	usersUrl := fmt.Sprint(c.baseURL, "/2.0/groups")
+	usersUrl := c.baseURL + pathGroups
 
 	var res struct {
 		paginationData
@@ -165,7 +172,7 @@ func (c *Client) GetGroups(ctx context.Context) ([]Group, error) {
 		q.Set("fields", "invitability_level,member_viewability_level,name")
 
 		if err := c.doRequest(ctx, usersUrl, &res, q); err != nil {
-			return nil, fmt.Errorf("failed to get groups: %w", err)
+			return nil, fmt.Errorf("baton-box: failed to get groups: %w", err)
 		}
 
 		allGroups = append(allGroups, res.Groups...)
@@ -186,7 +193,7 @@ func (c *Client) GetGroupMemberships(ctx context.Context, groupId string) ([]Gro
 	var allGroupMemberships []GroupMembership
 	offset := defaultOffset
 	totalReturned := 0
-	usersUrl := fmt.Sprintf("%s/2.0/groups/%s/memberships", c.baseURL, groupId)
+	usersUrl := fmt.Sprintf("%s%s/%s/memberships", c.baseURL, pathGroups, groupId)
 
 	var res struct {
 		paginationData
@@ -196,7 +203,7 @@ func (c *Client) GetGroupMemberships(ctx context.Context, groupId string) ([]Gro
 	for {
 		q := paginationQuery(offset, defaultLimit)
 		if err := c.doRequest(ctx, usersUrl, &res, q); err != nil {
-			return nil, fmt.Errorf("failed to get group memberships: %w", err)
+			return nil, fmt.Errorf("baton-box: failed to get group memberships: %w", err)
 		}
 
 		allGroupMemberships = append(allGroupMemberships, res.GroupMembership...)
@@ -214,13 +221,13 @@ func (c *Client) GetGroupMemberships(ctx context.Context, groupId string) ([]Gro
 
 // GetCurrentUserWithEnterprise returns current user with enterprise data.
 func (c *Client) GetCurrentUserWithEnterprise(ctx context.Context) (User, error) {
-	usersUrl := fmt.Sprint(c.baseURL, "/2.0/users/me")
+	usersUrl := c.baseURL + pathCurrentUser
 	params := url.Values{}
 	params.Set("fields", "enterprise,role,name")
 
 	var res User
 	if err := c.doRequest(ctx, usersUrl, &res, params); err != nil {
-		return User{}, fmt.Errorf("failed to get current user: %w", err)
+		return User{}, fmt.Errorf("baton-box: failed to get current user: %w", err)
 	}
 
 	return res, nil
@@ -228,14 +235,14 @@ func (c *Client) GetCurrentUserWithEnterprise(ctx context.Context) (User, error)
 
 // GetGroup returns Box group details.
 func (c *Client) GetGroup(ctx context.Context, groupId string) (Group, error) {
-	usersUrl := fmt.Sprint(c.baseURL, "/2.0/groups/", groupId)
+	usersUrl := fmt.Sprintf("%s%s/%s", c.baseURL, pathGroups, groupId)
 
 	var res Group
 	params := url.Values{}
 	params.Set("fields", "invitability_level,member_viewability_level,name")
 
 	if err := c.doRequest(ctx, usersUrl, &res, params); err != nil {
-		return Group{}, fmt.Errorf("failed to get group: %w", err)
+		return Group{}, fmt.Errorf("baton-box: failed to get group: %w", err)
 	}
 
 	return res, nil
@@ -244,7 +251,7 @@ func (c *Client) GetGroup(ctx context.Context, groupId string) (Group, error) {
 // GetUserByLogin fetches a single user by exact login (email) match via GET /2.0/users?filter_term=.
 // Returns nil, nil when no user with that login exists.
 func (c *Client) GetUserByLogin(ctx context.Context, login string) (*User, error) {
-	usersURL := fmt.Sprint(c.baseURL, "/2.0/users")
+	usersURL := c.baseURL + pathUsers
 	q := paginationQuery(defaultOffset, defaultLimit)
 	q.Set("filter_term", login)
 	q.Set("fields", "id,role,name,login,status")
@@ -255,7 +262,7 @@ func (c *Client) GetUserByLogin(ctx context.Context, login string) (*User, error
 	}
 
 	if err := c.doRequest(ctx, usersURL, &res, q); err != nil {
-		return nil, fmt.Errorf("failed to get user by login: %w", err)
+		return nil, fmt.Errorf("baton-box: failed to get user by login: %w", err)
 	}
 
 	for i := range res.Users {
@@ -268,7 +275,7 @@ func (c *Client) GetUserByLogin(ctx context.Context, login string) (*User, error
 
 // CreateUser creates a new managed Box user via POST /2.0/users.
 func (c *Client) CreateUser(ctx context.Context, input CreateUserInput) (*User, error) {
-	userURL := fmt.Sprint(c.baseURL, "/2.0/users")
+	userURL := c.baseURL + pathUsers
 	var res User
 	if err := c.doWrite(ctx, http.MethodPost, userURL, input, &res); err != nil {
 		return nil, err
@@ -278,7 +285,7 @@ func (c *Client) CreateUser(ctx context.Context, input CreateUserInput) (*User, 
 
 // UpdateUser updates a Box user's properties via PUT /2.0/users/{user_id}.
 func (c *Client) UpdateUser(ctx context.Context, userID string, updates map[string]interface{}) (*User, error) {
-	userURL := fmt.Sprintf("%s/2.0/users/%s", c.baseURL, userID)
+	userURL := fmt.Sprintf("%s%s/%s", c.baseURL, pathUsers, userID)
 	var res User
 	if err := c.doWrite(ctx, http.MethodPut, userURL, updates, &res); err != nil {
 		return nil, err
@@ -296,38 +303,11 @@ func (c *Client) DeactivateUser(ctx context.Context, userID string) error {
 // force=true removes the user even when they still have content.
 // notify=false suppresses the email notification sent to the user.
 func (c *Client) DeleteUser(ctx context.Context, userID string) error {
-	userURL := fmt.Sprintf("%s/2.0/users/%s", c.baseURL, userID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, userURL, nil)
-	if err != nil {
-		return err
-	}
-
 	q := url.Values{}
 	q.Set("force", "true")
 	q.Set("notify", "false")
-	req.URL.RawQuery = q.Encode()
-
-	req.Header.Set("accept", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.token))
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		var errResp struct {
-			Message string `json:"message"`
-			Code    string `json:"code"`
-		}
-		if decErr := json.NewDecoder(resp.Body).Decode(&errResp); decErr != nil {
-			return fmt.Errorf("delete request failed with status %d", resp.StatusCode)
-		}
-		return &APIError{Message: errResp.Message, Code: errResp.Code, Status: resp.StatusCode}
-	}
-
-	return nil
+	userURL := fmt.Sprintf("%s%s/%s?%s", c.baseURL, pathUsers, userID, q.Encode())
+	return c.doWrite(ctx, http.MethodDelete, userURL, nil, nil)
 }
 
 // ActivateUser sets a Box user's status back to active.
@@ -364,7 +344,7 @@ func (c *Client) doWrite(ctx context.Context, method, rawURL string, body interf
 			Code    string `json:"code"`
 		}
 		if decErr := json.NewDecoder(resp.Body).Decode(&errResp); decErr != nil {
-			return fmt.Errorf("request failed with status %d", resp.StatusCode)
+			return fmt.Errorf("baton-box: request failed (status %d, decode error: %w)", resp.StatusCode, decErr)
 		}
 		return &APIError{Message: errResp.Message, Code: errResp.Code, Status: resp.StatusCode}
 	}
@@ -403,7 +383,7 @@ func (c *Client) doRequest(ctx context.Context, url string, res interface{}, par
 			Code    string `json:"code"`
 		}
 		if decErr := json.NewDecoder(resp.Body).Decode(&errResp); decErr != nil {
-			return fmt.Errorf("request failed with status %d", resp.StatusCode)
+			return fmt.Errorf("baton-box: request failed (status %d, decode error: %w)", resp.StatusCode, decErr)
 		}
 		return &APIError{Message: errResp.Message, Code: errResp.Code, Status: resp.StatusCode}
 	}

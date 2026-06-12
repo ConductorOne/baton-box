@@ -81,7 +81,7 @@ func (o *userResourceType) List(ctx context.Context, parentId *v2.ResourceId, _ 
 
 	users, err := o.client.GetUsers(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("box-connector: failed to list users: %w", err)
+		return nil, nil, fmt.Errorf("baton-box: failed to list users: %w", err)
 	}
 
 	var rv []*v2.Resource
