@@ -4,12 +4,28 @@
     {
       "resourceType": {
         "id": "enterprise",
-        "displayName": "Enterprise"
+        "displayName": "Enterprise",
+        "annotations": [
+          {
+            "@type": "type.googleapis.com/c1.connector.v2.CapabilityPermissions",
+            "permissions": [
+              {
+                "permission": "Manage enterprise properties"
+              }
+            ]
+          }
+        ]
       },
       "capabilities": [
         "CAPABILITY_SYNC"
       ],
-      "permissions": {}
+      "permissions": {
+        "permissions": [
+          {
+            "permission": "Manage enterprise properties"
+          }
+        ]
+      }
     },
     {
       "resourceType": {
@@ -17,12 +33,28 @@
         "displayName": "Group",
         "traits": [
           "TRAIT_GROUP"
+        ],
+        "annotations": [
+          {
+            "@type": "type.googleapis.com/c1.connector.v2.CapabilityPermissions",
+            "permissions": [
+              {
+                "permission": "Manage groups"
+              }
+            ]
+          }
         ]
       },
       "capabilities": [
         "CAPABILITY_SYNC"
       ],
-      "permissions": {}
+      "permissions": {
+        "permissions": [
+          {
+            "permission": "Manage groups"
+          }
+        ]
+      }
     },
     {
       "resourceType": {
@@ -30,12 +62,29 @@
         "displayName": "Role",
         "traits": [
           "TRAIT_ROLE"
+        ],
+        "annotations": [
+          {
+            "@type": "type.googleapis.com/c1.connector.v2.CapabilityPermissions",
+            "permissions": [
+              {
+                "permission": "Manage users"
+              }
+            ]
+          }
         ]
       },
       "capabilities": [
-        "CAPABILITY_SYNC"
+        "CAPABILITY_SYNC",
+        "CAPABILITY_PROVISION"
       ],
-      "permissions": {}
+      "permissions": {
+        "permissions": [
+          {
+            "permission": "Manage users"
+          }
+        ]
+      }
     },
     {
       "resourceType": {
@@ -47,17 +96,44 @@
         "annotations": [
           {
             "@type": "type.googleapis.com/c1.connector.v2.SkipEntitlementsAndGrants"
+          },
+          {
+            "@type": "type.googleapis.com/c1.connector.v2.CapabilityPermissions",
+            "permissions": [
+              {
+                "permission": "Manage users"
+              }
+            ]
           }
         ]
       },
       "capabilities": [
-        "CAPABILITY_SYNC"
+        "CAPABILITY_SYNC",
+        "CAPABILITY_ACCOUNT_PROVISIONING",
+        "CAPABILITY_RESOURCE_DELETE"
       ],
-      "permissions": {}
+      "permissions": {
+        "permissions": [
+          {
+            "permission": "Manage users"
+          }
+        ]
+      }
     }
   ],
   "connectorCapabilities": [
-    "CAPABILITY_SYNC"
+    "CAPABILITY_PROVISION",
+    "CAPABILITY_SYNC",
+    "CAPABILITY_ACCOUNT_PROVISIONING",
+    "CAPABILITY_RESOURCE_DELETE",
+    "CAPABILITY_ACTIONS"
   ],
-  "credentialDetails": {}
+  "credentialDetails": {
+    "capabilityAccountProvisioning": {
+      "supportedCredentialOptions": [
+        "CAPABILITY_DETAIL_CREDENTIAL_OPTION_NO_PASSWORD"
+      ],
+      "preferredCredentialOption": "CAPABILITY_DETAIL_CREDENTIAL_OPTION_NO_PASSWORD"
+    }
+  }
 }

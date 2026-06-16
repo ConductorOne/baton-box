@@ -13,7 +13,16 @@ import (
 func annotationsForUserResourceType() annotations.Annotations {
 	annos := annotations.Annotations{}
 	annos.Update(&v2.SkipEntitlementsAndGrants{})
+	annos.Update(capabilityPermissions("Manage users"))
 	return annos
+}
+
+func capabilityPermissions(perms ...string) *v2.CapabilityPermissions {
+	var permissions []*v2.CapabilityPermission
+	for _, p := range perms {
+		permissions = append(permissions, v2.CapabilityPermission_builder{Permission: p}.Build())
+	}
+	return v2.CapabilityPermissions_builder{Permissions: permissions}.Build()
 }
 
 func titleCase(s string) string {

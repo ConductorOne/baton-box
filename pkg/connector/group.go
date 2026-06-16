@@ -6,17 +6,21 @@ import (
 
 	"github.com/conductorone/baton-box/pkg/box"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"github.com/conductorone/baton-sdk/pkg/pagination"
 	ent "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	grant "github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 )
 
 const (
-	member = "member"
-	admin  = "admin"
-	user   = "user"
+	member  = "member"
+	admin   = "admin"
+	user    = "user"
+	coadmin = "co-admin"
+
+	fieldLogin  = "login"
+	fieldName   = "name"
+	fieldUserID = "user_id"
+	fieldRole   = "role"
 )
 
 type groupResourceType struct {
@@ -51,14 +55,14 @@ func groupResource(group *box.Group, parentResourceID *v2.ResourceId) (*v2.Resou
 	return ret, nil
 }
 
-func (g *groupResourceType) List(ctx context.Context, parentId *v2.ResourceId, token *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
+func (g *groupResourceType) List(ctx context.Context, parentId *v2.ResourceId, _ rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
 	if parentId == nil {
-		return nil, "", nil, nil
+		return nil, &rs.SyncOpResults{}, nil
 	}
 
 	groups, err := g.client.GetGroups(ctx)
 	if err != nil {
-		return nil, "", nil, fmt.Errorf("box-connector: failed to list groups: %w", err)
+		return nil, nil, fmt.Errorf("baton-box: failed to list groups: %w", err)
 	}
 
 	var rv []*v2.Resource
@@ -66,15 +70,15 @@ func (g *groupResourceType) List(ctx context.Context, parentId *v2.ResourceId, t
 		groupCopy := group
 		ur, err := groupResource(&groupCopy, parentId)
 		if err != nil {
-			return nil, "", nil, err
+			return nil, nil, err
 		}
 		rv = append(rv, ur)
 	}
 
-	return rv, "", nil, nil
+	return rv, &rs.SyncOpResults{}, nil
 }
 
-func (g *groupResourceType) Entitlements(_ context.Context, resource *v2.Resource, _ *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
+func (g *groupResourceType) Entitlements(_ context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
 	var rv []*v2.Entitlement
 
 	assigmentOptions := PopulateOptions(resource.DisplayName, member, resource.Id.Resource)
@@ -85,22 +89,22 @@ func (g *groupResourceType) Entitlements(_ context.Context, resource *v2.Resourc
 
 	rv = append(rv, assignmentEn, permissionEn)
 
-	return rv, "", nil, nil
+	return rv, &rs.SyncOpResults{}, nil
 }
 
-func (g *groupResourceType) Grants(ctx context.Context, resource *v2.Resource, token *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
+func (g *groupResourceType) Grants(ctx context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
 	var rv []*v2.Grant
 
 	groupMemberships, err := g.client.GetGroupMemberships(ctx, resource.Id.Resource)
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	for _, groupMembership := range groupMemberships {
 		groupMembershipCopy := groupMembership
 		ur, err := userResource(&groupMembershipCopy.User, resource.Id)
 		if err != nil {
-			return nil, "", nil, err
+			return nil, nil, err
 		}
 		membershipGrant := grant.NewGrant(resource, member, ur.Id)
 		rv = append(rv, membershipGrant)
@@ -111,7 +115,7 @@ func (g *groupResourceType) Grants(ctx context.Context, resource *v2.Resource, t
 		}
 	}
 
-	return rv, "", nil, nil
+	return rv, &rs.SyncOpResults{}, nil
 }
 
 func groupBuilder(client *box.Client) *groupResourceType {

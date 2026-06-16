@@ -33,3 +33,11 @@ type GroupMembership struct {
 	User  User   `json:"user"`
 	Group Group  `json:"group"`
 }
+
+// CreateUserInput holds the fields sent to POST /2.0/users.
+type CreateUserInput struct {
+	Login  string `json:"login"`
+	Name   string `json:"name"`
+	Role   string `json:"role,omitempty"`
+	Status string `json:"status,omitempty"`
+}

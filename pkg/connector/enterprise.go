@@ -6,9 +6,6 @@ import (
 
 	"github.com/conductorone/baton-box/pkg/box"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"github.com/conductorone/baton-sdk/pkg/pagination"
-
 	ent "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	grant "github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
@@ -31,7 +28,7 @@ func enterpriseBuilder(client *box.Client) *enterpriseResourceType {
 }
 
 // Create a new connector resource for a Box enterprise.
-func enterpriseResource(ctx context.Context, policy box.Enterprise) (*v2.Resource, error) {
+func enterpriseResource(_ context.Context, policy box.Enterprise) (*v2.Resource, error) {
 	policyOptions := []rs.ResourceOption{
 		rs.WithAnnotation(
 			&v2.ChildResourceType{ResourceTypeId: resourceTypeUser.Id},
@@ -48,24 +45,24 @@ func enterpriseResource(ctx context.Context, policy box.Enterprise) (*v2.Resourc
 	return ret, nil
 }
 
-func (o *enterpriseResourceType) List(ctx context.Context, resourceId *v2.ResourceId, pt *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
+func (o *enterpriseResourceType) List(ctx context.Context, _ *v2.ResourceId, _ rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
 	var rv []*v2.Resource
 	// there is no endpoint just for enterprise so we have to get the current user with enterprise data.
 	currentUser, err := o.client.GetCurrentUserWithEnterprise(ctx)
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	pr, err := enterpriseResource(ctx, currentUser.Enterprise)
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	rv = append(rv, pr)
-	return rv, "", nil, nil
+	return rv, &rs.SyncOpResults{}, nil
 }
 
-func (o *enterpriseResourceType) Entitlements(ctx context.Context, resource *v2.Resource, _ *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
+func (o *enterpriseResourceType) Entitlements(_ context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
 	var rv []*v2.Entitlement
 
 	assigmentOptions := []ent.EntitlementOption{
@@ -77,13 +74,13 @@ func (o *enterpriseResourceType) Entitlements(ctx context.Context, resource *v2.
 	assignmentEn := ent.NewAssignmentEntitlement(resource, member, assigmentOptions...)
 	rv = append(rv, assignmentEn)
 
-	return rv, "", nil, nil
+	return rv, &rs.SyncOpResults{}, nil
 }
 
-func (o *enterpriseResourceType) Grants(ctx context.Context, resource *v2.Resource, pt *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
+func (o *enterpriseResourceType) Grants(ctx context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
 	users, err := o.client.GetUsers(ctx)
 	if err != nil {
-		return nil, "", nil, fmt.Errorf("box-connector: failed to list users: %w", err)
+		return nil, nil, fmt.Errorf("baton-box: failed to list users: %w", err)
 	}
 
 	var rv []*v2.Grant
@@ -91,11 +88,11 @@ func (o *enterpriseResourceType) Grants(ctx context.Context, resource *v2.Resour
 		userCopy := user
 		ur, err := userResource(&userCopy, resource.Id)
 		if err != nil {
-			return nil, "", nil, err
+			return nil, nil, err
 		}
 		membershipGrant := grant.NewGrant(resource, member, ur.Id)
 		rv = append(rv, membershipGrant)
 	}
 
-	return rv, "", nil, nil
+	return rv, &rs.SyncOpResults{}, nil
 }

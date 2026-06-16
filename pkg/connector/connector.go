@@ -27,17 +27,20 @@ var (
 		Traits: []v2.ResourceType_Trait{
 			v2.ResourceType_TRAIT_GROUP,
 		},
+		Annotations: annotations.New(capabilityPermissions("Manage groups")),
 	}
 	resourceTypeEnterprise = &v2.ResourceType{
 		Id:          "enterprise",
 		DisplayName: "Enterprise",
+		Annotations: annotations.New(capabilityPermissions("Manage enterprise properties")),
 	}
 	resourceTypeRole = &v2.ResourceType{
-		Id:          "role",
+		Id:          fieldRole,
 		DisplayName: "Role",
 		Traits: []v2.ResourceType_Trait{
 			v2.ResourceType_TRAIT_ROLE,
 		},
+		Annotations: annotations.New(capabilityPermissions("Manage users")),
 	}
 )
 
@@ -53,36 +56,64 @@ func New(ctx context.Context, clientId string, clientSecret string, enterpriseId
 
 	token, err := box.RequestAccessToken(ctx, clientId, clientSecret, enterpriseId, baseURL)
 	if err != nil {
-		return nil, fmt.Errorf("box-connector: failed to get token: %w", err)
+		return nil, fmt.Errorf("baton-box: failed to get token: %w", err)
 	}
 
-	return &Box{
-		client: box.NewClient(httpClient, token, baseURL),
-	}, nil
+	client, err := box.NewClient(httpClient, token, baseURL)
+	if err != nil {
+		return nil, err
+	}
+	return &Box{client: client}, nil
 }
 
 func (b *Box) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error) {
 	return &v2.ConnectorMetadata{
 		DisplayName: "Box",
 		Description: "Connector syncing users, groups, enterprise and roles from Box to Baton",
+		AccountCreationSchema: &v2.ConnectorAccountCreationSchema{
+			FieldMap: map[string]*v2.ConnectorAccountCreationSchema_Field{
+				fieldLogin: {
+					DisplayName: "Email (Login)",
+					Required:    true,
+					Description: "The email address used as the Box login. Must be unique within the enterprise.",
+					Placeholder: "john.doe@example.com",
+					Order:       1,
+					Field: &v2.ConnectorAccountCreationSchema_Field_StringField{
+						StringField: &v2.ConnectorAccountCreationSchema_StringField{},
+					},
+				},
+				fieldName: {
+					DisplayName: "Full Name",
+					Required:    true,
+					Description: "The display name shown in Box.",
+					Placeholder: "John Doe",
+					Order:       2,
+					Field: &v2.ConnectorAccountCreationSchema_Field_StringField{
+						StringField: &v2.ConnectorAccountCreationSchema_StringField{},
+					},
+				},
+			},
+		},
 	}, nil
 }
 
 func (b *Box) Validate(ctx context.Context) (annotations.Annotations, error) {
 	currentUser, err := b.client.GetCurrentUserWithEnterprise(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("box-connector: failed to authenticate: %w", err)
+		return nil, fmt.Errorf("baton-box: failed to authenticate: %w", err)
 	}
 
 	if currentUser.Role != admin {
-		return nil, fmt.Errorf("box-connector: user is not an admin")
+		return nil, fmt.Errorf("baton-box: user is not an admin")
 	}
 
 	return nil, nil
 }
 
-func (b *Box) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncer {
-	return []connectorbuilder.ResourceSyncer{
+var _ connectorbuilder.ConnectorBuilderV2 = (*Box)(nil)
+
+func (b *Box) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncerV2 {
+	return []connectorbuilder.ResourceSyncerV2{
 		userBuilder(b.client),
 		groupBuilder(b.client),
 		enterpriseBuilder(b.client),
