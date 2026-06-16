@@ -94,6 +94,7 @@
     },
     {
       "name": "box-client-id",
+      "displayName": "Client ID",
       "description": "Client ID used to authenticate to the Box API.",
       "isRequired": true,
       "stringField": {
@@ -104,6 +105,7 @@
     },
     {
       "name": "box-client-secret",
+      "displayName": "Client Secret",
       "description": "Client Secret used to authenticate to the Box API.",
       "isRequired": true,
       "isSecret": true,
@@ -115,6 +117,7 @@
     },
     {
       "name": "enterprise-id",
+      "displayName": "Enterprise ID",
       "description": "ID of your Box enterprise.",
       "isRequired": true,
       "stringField": {
@@ -123,5 +126,8 @@
         }
       }
     }
-  ]
+  ],
+  "displayName": "Box",
+  "helpUrl": "/docs/baton/box",
+  "iconUrl": "/static/app-icons/box.svg"
 }
