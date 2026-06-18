@@ -11,6 +11,8 @@ import (
 	ent "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	grant "github.com/conductorone/baton-sdk/pkg/types/grant"
 	resource "github.com/conductorone/baton-sdk/pkg/types/resource"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -91,6 +93,8 @@ func (o *roleResourceType) Entitlements(_ context.Context, res *v2.Resource, _ r
 }
 
 func (o *roleResourceType) Grants(ctx context.Context, res *v2.Resource, _ resource.SyncOpAttrs) ([]*v2.Grant, *resource.SyncOpResults, error) {
+	l := ctxzap.Extract(ctx)
+
 	users, err := o.client.GetUsers(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("baton-box: failed to list users: %w", err)
@@ -98,20 +102,26 @@ func (o *roleResourceType) Grants(ctx context.Context, res *v2.Resource, _ resou
 
 	var rv []*v2.Grant
 	for _, user := range users {
+		roleDisplay, ok := roles[user.Role]
+		if !ok {
+			l.Debug("baton-box: unrecognized Box role, skipping grant", zap.String("role", user.Role), zap.String("user_id", user.ID))
+			continue
+		}
+		if res.Id.Resource != roleDisplay {
+			continue
+		}
+
 		userCopy := user
 		ur, err := userResource(&userCopy, res.Id)
 		if err != nil {
 			return nil, nil, err
 		}
 
-		if res.Id.Resource == roles[user.Role] {
-			var grantOpts []grant.GrantOption
-			if res.Id.Resource == admin {
-				grantOpts = append(grantOpts, grant.WithAnnotation(&v2.GrantImmutable{}))
-			}
-			permissionGrant := grant.NewGrant(res, member, ur.Id, grantOpts...)
-			rv = append(rv, permissionGrant)
+		var grantOpts []grant.GrantOption
+		if res.Id.Resource == admin {
+			grantOpts = append(grantOpts, grant.WithAnnotation(&v2.GrantImmutable{}))
 		}
+		rv = append(rv, grant.NewGrant(res, member, ur.Id, grantOpts...))
 	}
 
 	return rv, &resource.SyncOpResults{}, nil

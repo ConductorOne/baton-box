@@ -44,20 +44,22 @@ func userResource(user *box.User, parentResourceID *v2.ResourceId) (*v2.Resource
 		fieldUserID:  user.ID,
 	}
 
-	var status v2.UserTrait_Status_Status
+	var statusOpt rs.UserTraitOption
 	switch user.Status {
-	case "active":
-		status = v2.UserTrait_Status_STATUS_ENABLED
+	case "active", "cannot_delete_edit", "cannot_delete_edit_upload":
+		statusOpt = rs.WithStatus(v2.UserTrait_Status_STATUS_ENABLED)
 	case "inactive":
-		status = v2.UserTrait_Status_STATUS_DISABLED
+		statusOpt = rs.WithStatus(v2.UserTrait_Status_STATUS_DISABLED)
+	case "pending":
+		statusOpt = rs.WithDetailedStatus(v2.UserTrait_Status_STATUS_DISABLED, "pending")
 	default:
-		status = v2.UserTrait_Status_STATUS_UNSPECIFIED
+		statusOpt = rs.WithStatus(v2.UserTrait_Status_STATUS_UNSPECIFIED)
 	}
 
 	userTraitOptions := []rs.UserTraitOption{
 		rs.WithUserProfile(profile),
 		rs.WithEmail(user.Login, true),
-		rs.WithStatus(status),
+		statusOpt,
 	}
 
 	ret, err := rs.NewUserResource(

@@ -23,7 +23,6 @@ type Client struct {
 
 const (
 	defaultBaseURL = "https://api.box.com"
-	defaultOffset  = 0
 	defaultLimit   = 200
 
 	pathUsers       = "/2.0/users"
@@ -31,10 +30,22 @@ const (
 	pathCurrentUser = "/2.0/users/me"
 )
 
-type paginationData struct {
-	Limit      int `json:"limit"`
-	Offset     int `json:"offset"`
-	TotalCount int `json:"total_count"`
+// markerPage holds the marker-pagination fields returned by Box list endpoints.
+// Box rejects offset values above 10,000; marker-based pagination has no such limit.
+type markerPage struct {
+	Limit      int    `json:"limit"`
+	NextMarker string `json:"next_marker"`
+}
+
+// markerQuery builds query params for marker-based pagination (usemarker=true).
+func markerQuery(marker string) url.Values {
+	q := url.Values{}
+	q.Set("usemarker", "true")
+	q.Set("limit", strconv.Itoa(defaultLimit))
+	if marker != "" {
+		q.Set("marker", marker)
+	}
+	return q
 }
 
 // APIError carries a structured Box API error so callers can check error codes with errors.As.
@@ -60,17 +71,6 @@ func NewClient(httpClient *http.Client, token string, baseURL string) (*Client, 
 		token:      token,
 		baseURL:    strings.TrimRight(baseURL, "/"),
 	}, nil
-}
-
-// returns query params with pagination options.
-func paginationQuery(offset int, limit int) url.Values {
-	q := url.Values{}
-	stringOffset := strconv.Itoa(offset)
-	stringLimit := strconv.Itoa(limit)
-
-	q.Add("offset", stringOffset)
-	q.Add("limit", stringLimit)
-	return q
 }
 
 // RequestAccessToken creates bearer token needed to use the Box API.
@@ -125,31 +125,26 @@ func RequestAccessToken(ctx context.Context, clientID string, clientSecret strin
 // GetUsers returns all users from Box enterprise.
 func (c *Client) GetUsers(ctx context.Context) ([]User, error) {
 	var allUsers []User
-	offset := defaultOffset
-	totalReturned := 0
-	usersUrl := c.baseURL + pathUsers
-
-	var res struct {
-		paginationData
-		Users []User `json:"entries"`
-	}
+	var marker string
+	usersURL := c.baseURL + pathUsers
 
 	for {
-		q := paginationQuery(offset, defaultLimit)
+		var res struct {
+			markerPage
+			Users []User `json:"entries"`
+		}
+		q := markerQuery(marker)
 		q.Set("fields", "role,name,login,status")
 
-		if err := c.doRequest(ctx, usersUrl, &res, q); err != nil {
+		if err := c.doRequest(ctx, usersURL, &res, q); err != nil {
 			return nil, fmt.Errorf("baton-box: failed to get users: %w", err)
 		}
 
 		allUsers = append(allUsers, res.Users...)
-
-		totalReturned += res.Limit
-		if totalReturned >= res.TotalCount {
+		if res.NextMarker == "" {
 			break
 		}
-
-		offset += res.Limit
+		marker = res.NextMarker
 	}
 
 	return allUsers, nil
@@ -158,31 +153,26 @@ func (c *Client) GetUsers(ctx context.Context) ([]User, error) {
 // GetGroups returns all groups from Box enterprise.
 func (c *Client) GetGroups(ctx context.Context) ([]Group, error) {
 	var allGroups []Group
-	offset := defaultOffset
-	totalReturned := 0
-	usersUrl := c.baseURL + pathGroups
-
-	var res struct {
-		paginationData
-		Groups []Group `json:"entries"`
-	}
+	var marker string
+	groupsURL := c.baseURL + pathGroups
 
 	for {
-		q := paginationQuery(offset, defaultLimit)
+		var res struct {
+			markerPage
+			Groups []Group `json:"entries"`
+		}
+		q := markerQuery(marker)
 		q.Set("fields", "invitability_level,member_viewability_level,name")
 
-		if err := c.doRequest(ctx, usersUrl, &res, q); err != nil {
+		if err := c.doRequest(ctx, groupsURL, &res, q); err != nil {
 			return nil, fmt.Errorf("baton-box: failed to get groups: %w", err)
 		}
 
 		allGroups = append(allGroups, res.Groups...)
-
-		totalReturned += res.Limit
-		if totalReturned >= res.TotalCount {
+		if res.NextMarker == "" {
 			break
 		}
-
-		offset += res.Limit
+		marker = res.NextMarker
 	}
 
 	return allGroups, nil
@@ -190,33 +180,27 @@ func (c *Client) GetGroups(ctx context.Context) ([]Group, error) {
 
 // GetGroupMemberships returns all group memberships from Box enterprise.
 func (c *Client) GetGroupMemberships(ctx context.Context, groupId string) ([]GroupMembership, error) {
-	var allGroupMemberships []GroupMembership
-	offset := defaultOffset
-	totalReturned := 0
-	usersUrl := fmt.Sprintf("%s%s/%s/memberships", c.baseURL, pathGroups, groupId)
-
-	var res struct {
-		paginationData
-		GroupMembership []GroupMembership `json:"entries"`
-	}
+	var allMemberships []GroupMembership
+	var marker string
+	membershipsURL := fmt.Sprintf("%s%s/%s/memberships", c.baseURL, pathGroups, groupId)
 
 	for {
-		q := paginationQuery(offset, defaultLimit)
-		if err := c.doRequest(ctx, usersUrl, &res, q); err != nil {
+		var res struct {
+			markerPage
+			GroupMembership []GroupMembership `json:"entries"`
+		}
+		if err := c.doRequest(ctx, membershipsURL, &res, markerQuery(marker)); err != nil {
 			return nil, fmt.Errorf("baton-box: failed to get group memberships: %w", err)
 		}
 
-		allGroupMemberships = append(allGroupMemberships, res.GroupMembership...)
-
-		totalReturned += res.Limit
-		if totalReturned >= res.TotalCount {
+		allMemberships = append(allMemberships, res.GroupMembership...)
+		if res.NextMarker == "" {
 			break
 		}
-
-		offset += res.Limit
+		marker = res.NextMarker
 	}
 
-	return allGroupMemberships, nil
+	return allMemberships, nil
 }
 
 // GetCurrentUserWithEnterprise returns current user with enterprise data.
@@ -231,6 +215,32 @@ func (c *Client) GetCurrentUserWithEnterprise(ctx context.Context) (User, error)
 	}
 
 	return res, nil
+}
+
+// GetUser fetches a single Box user by ID.
+func (c *Client) GetUser(ctx context.Context, userID string) (*User, error) {
+	userURL := fmt.Sprintf("%s%s/%s", c.baseURL, pathUsers, userID)
+	q := url.Values{}
+	q.Set("fields", "id,role,name,login,status")
+	var res User
+	if err := c.doRequest(ctx, userURL, &res, q); err != nil {
+		return nil, fmt.Errorf("baton-box: failed to get user %s: %w", userID, err)
+	}
+	return &res, nil
+}
+
+// CheckAdminAccess verifies the token has manage-users admin scope by requesting a
+// single user entry. Box CCG Service Accounts are not assigned a role designation,
+// so validating via the role field is incorrect; a 403 here means insufficient scope.
+func (c *Client) CheckAdminAccess(ctx context.Context) error {
+	q := markerQuery("")
+	q.Set("limit", "1")
+	q.Set("fields", "id")
+	var res struct {
+		markerPage
+		Users []User `json:"entries"`
+	}
+	return c.doRequest(ctx, c.baseURL+pathUsers, &res, q)
 }
 
 // GetGroup returns Box group details.
@@ -252,12 +262,12 @@ func (c *Client) GetGroup(ctx context.Context, groupId string) (Group, error) {
 // Returns nil, nil when no user with that login exists.
 func (c *Client) GetUserByLogin(ctx context.Context, login string) (*User, error) {
 	usersURL := c.baseURL + pathUsers
-	q := paginationQuery(defaultOffset, defaultLimit)
+	q := markerQuery("")
 	q.Set("filter_term", login)
 	q.Set("fields", "id,role,name,login,status")
 
 	var res struct {
-		paginationData
+		markerPage
 		Users []User `json:"entries"`
 	}
 
