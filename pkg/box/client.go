@@ -33,7 +33,6 @@ const (
 // markerPage holds the marker-pagination fields returned by Box list endpoints.
 // Box rejects offset values above 10,000; marker-based pagination has no such limit.
 type markerPage struct {
-	Limit      int    `json:"limit"`
 	NextMarker string `json:"next_marker"`
 }
 
