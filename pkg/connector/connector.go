@@ -98,7 +98,6 @@ func (b *Box) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error) {
 }
 
 func (b *Box) Validate(ctx context.Context) (annotations.Annotations, error) {
-	// Verify authentication — also populates enterprise info used by enterpriseBuilder.
 	if _, err := b.client.GetCurrentUserWithEnterprise(ctx); err != nil {
 		return nil, fmt.Errorf("baton-box: failed to authenticate: %w", err)
 	}
