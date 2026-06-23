@@ -350,6 +350,7 @@ func (c *Client) doRequest(ctx context.Context, rawURL string, res interface{}, 
 	if err != nil {
 		return annos, err
 	}
+	defer resp.Body.Close()
 
 	if res != nil {
 		if decErr := json.NewDecoder(resp.Body).Decode(res); decErr != nil {

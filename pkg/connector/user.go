@@ -146,7 +146,7 @@ func (o *userResourceType) CreateAccount(
 	}
 
 	var (
-		boxUser       *box.User
+		boxUser        *box.User
 		alreadyExisted bool
 	)
 
