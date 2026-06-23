@@ -76,12 +76,12 @@ func userResource(user *box.User, parentResourceID *v2.ResourceId) (*v2.Resource
 	return ret, nil
 }
 
-func (o *userResourceType) List(ctx context.Context, parentId *v2.ResourceId, _ rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
+func (o *userResourceType) List(ctx context.Context, parentId *v2.ResourceId, attrs rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
 	if parentId == nil {
 		return nil, &rs.SyncOpResults{}, nil
 	}
 
-	users, err := o.client.GetUsers(ctx)
+	users, nextMarker, annos, err := o.client.GetUsers(ctx, attrs.PageToken.Token)
 	if err != nil {
 		return nil, nil, fmt.Errorf("baton-box: failed to list users: %w", err)
 	}
@@ -96,7 +96,7 @@ func (o *userResourceType) List(ctx context.Context, parentId *v2.ResourceId, _ 
 		rv = append(rv, ur)
 	}
 
-	return rv, &rs.SyncOpResults{}, nil
+	return rv, &rs.SyncOpResults{NextPageToken: nextMarker, Annotations: annos}, nil
 }
 
 func (o *userResourceType) Entitlements(_ context.Context, _ *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {

@@ -92,10 +92,10 @@ func (o *roleResourceType) Entitlements(_ context.Context, res *v2.Resource, _ r
 	return rv, &resource.SyncOpResults{}, nil
 }
 
-func (o *roleResourceType) Grants(ctx context.Context, res *v2.Resource, _ resource.SyncOpAttrs) ([]*v2.Grant, *resource.SyncOpResults, error) {
+func (o *roleResourceType) Grants(ctx context.Context, res *v2.Resource, attrs resource.SyncOpAttrs) ([]*v2.Grant, *resource.SyncOpResults, error) {
 	l := ctxzap.Extract(ctx)
 
-	users, err := o.client.GetUsers(ctx)
+	users, nextMarker, _, err := o.client.GetUsers(ctx, attrs.PageToken.Token)
 	if err != nil {
 		return nil, nil, fmt.Errorf("baton-box: failed to list users: %w", err)
 	}
@@ -124,7 +124,7 @@ func (o *roleResourceType) Grants(ctx context.Context, res *v2.Resource, _ resou
 		rv = append(rv, grant.NewGrant(res, member, ur.Id, grantOpts...))
 	}
 
-	return rv, &resource.SyncOpResults{}, nil
+	return rv, &resource.SyncOpResults{NextPageToken: nextMarker}, nil
 }
 
 func roleBuilder(client *box.Client) *roleResourceType {

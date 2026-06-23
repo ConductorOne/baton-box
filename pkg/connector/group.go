@@ -55,12 +55,12 @@ func groupResource(group *box.Group, parentResourceID *v2.ResourceId) (*v2.Resou
 	return ret, nil
 }
 
-func (g *groupResourceType) List(ctx context.Context, parentId *v2.ResourceId, _ rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
+func (g *groupResourceType) List(ctx context.Context, parentId *v2.ResourceId, attrs rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
 	if parentId == nil {
 		return nil, &rs.SyncOpResults{}, nil
 	}
 
-	groups, err := g.client.GetGroups(ctx)
+	groups, nextMarker, annos, err := g.client.GetGroups(ctx, attrs.PageToken.Token)
 	if err != nil {
 		return nil, nil, fmt.Errorf("baton-box: failed to list groups: %w", err)
 	}
@@ -75,7 +75,7 @@ func (g *groupResourceType) List(ctx context.Context, parentId *v2.ResourceId, _
 		rv = append(rv, ur)
 	}
 
-	return rv, &rs.SyncOpResults{}, nil
+	return rv, &rs.SyncOpResults{NextPageToken: nextMarker, Annotations: annos}, nil
 }
 
 func (g *groupResourceType) Entitlements(_ context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
@@ -92,10 +92,10 @@ func (g *groupResourceType) Entitlements(_ context.Context, resource *v2.Resourc
 	return rv, &rs.SyncOpResults{}, nil
 }
 
-func (g *groupResourceType) Grants(ctx context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
+func (g *groupResourceType) Grants(ctx context.Context, resource *v2.Resource, attrs rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
 	var rv []*v2.Grant
 
-	groupMemberships, err := g.client.GetGroupMemberships(ctx, resource.Id.Resource)
+	groupMemberships, nextMarker, _, err := g.client.GetGroupMemberships(ctx, resource.Id.Resource, attrs.PageToken.Token)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -115,7 +115,7 @@ func (g *groupResourceType) Grants(ctx context.Context, resource *v2.Resource, _
 		}
 	}
 
-	return rv, &rs.SyncOpResults{}, nil
+	return rv, &rs.SyncOpResults{NextPageToken: nextMarker}, nil
 }
 
 func groupBuilder(client *box.Client) *groupResourceType {
