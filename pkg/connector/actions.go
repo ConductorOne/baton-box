@@ -170,6 +170,14 @@ func (o *userResourceType) enableUserActionHandler(ctx context.Context, args *st
 		return nil, nil, err
 	}
 
+	u, err := o.client.GetUser(ctx, userID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("baton-box: failed to get user %s before enabling: %w", userID, err)
+	}
+	if u.Status == "pending" {
+		return nil, nil, status.Errorf(codes.FailedPrecondition, "baton-box: user %s is pending email confirmation and cannot be enabled", userID)
+	}
+
 	if err := o.client.ActivateUser(ctx, userID); err != nil {
 		return nil, nil, fmt.Errorf("baton-box: failed to enable user %s: %w", userID, err)
 	}

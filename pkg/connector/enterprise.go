@@ -77,8 +77,8 @@ func (o *enterpriseResourceType) Entitlements(_ context.Context, resource *v2.Re
 	return rv, &rs.SyncOpResults{}, nil
 }
 
-func (o *enterpriseResourceType) Grants(ctx context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
-	users, err := o.client.GetUsers(ctx)
+func (o *enterpriseResourceType) Grants(ctx context.Context, resource *v2.Resource, attrs rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
+	users, nextMarker, _, err := o.client.GetUsers(ctx, attrs.PageToken.Token)
 	if err != nil {
 		return nil, nil, fmt.Errorf("baton-box: failed to list users: %w", err)
 	}
@@ -94,5 +94,5 @@ func (o *enterpriseResourceType) Grants(ctx context.Context, resource *v2.Resour
 		rv = append(rv, membershipGrant)
 	}
 
-	return rv, &rs.SyncOpResults{}, nil
+	return rv, &rs.SyncOpResults{NextPageToken: nextMarker}, nil
 }

@@ -44,20 +44,22 @@ func userResource(user *box.User, parentResourceID *v2.ResourceId) (*v2.Resource
 		fieldUserID:  user.ID,
 	}
 
-	var status v2.UserTrait_Status_Status
+	var statusOpt rs.UserTraitOption
 	switch user.Status {
-	case "active":
-		status = v2.UserTrait_Status_STATUS_ENABLED
+	case "active", "cannot_delete_edit", "cannot_delete_edit_upload":
+		statusOpt = rs.WithStatus(v2.UserTrait_Status_STATUS_ENABLED)
 	case "inactive":
-		status = v2.UserTrait_Status_STATUS_DISABLED
+		statusOpt = rs.WithStatus(v2.UserTrait_Status_STATUS_DISABLED)
+	case "pending":
+		statusOpt = rs.WithDetailedStatus(v2.UserTrait_Status_STATUS_DISABLED, "pending")
 	default:
-		status = v2.UserTrait_Status_STATUS_UNSPECIFIED
+		statusOpt = rs.WithStatus(v2.UserTrait_Status_STATUS_UNSPECIFIED)
 	}
 
 	userTraitOptions := []rs.UserTraitOption{
 		rs.WithUserProfile(profile),
 		rs.WithEmail(user.Login, true),
-		rs.WithStatus(status),
+		statusOpt,
 	}
 
 	ret, err := rs.NewUserResource(
@@ -74,12 +76,12 @@ func userResource(user *box.User, parentResourceID *v2.ResourceId) (*v2.Resource
 	return ret, nil
 }
 
-func (o *userResourceType) List(ctx context.Context, parentId *v2.ResourceId, _ rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
+func (o *userResourceType) List(ctx context.Context, parentId *v2.ResourceId, attrs rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
 	if parentId == nil {
 		return nil, &rs.SyncOpResults{}, nil
 	}
 
-	users, err := o.client.GetUsers(ctx)
+	users, nextMarker, annos, err := o.client.GetUsers(ctx, attrs.PageToken.Token)
 	if err != nil {
 		return nil, nil, fmt.Errorf("baton-box: failed to list users: %w", err)
 	}
@@ -94,7 +96,7 @@ func (o *userResourceType) List(ctx context.Context, parentId *v2.ResourceId, _ 
 		rv = append(rv, ur)
 	}
 
-	return rv, &rs.SyncOpResults{}, nil
+	return rv, &rs.SyncOpResults{NextPageToken: nextMarker, Annotations: annos}, nil
 }
 
 func (o *userResourceType) Entitlements(_ context.Context, _ *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
@@ -144,7 +146,7 @@ func (o *userResourceType) CreateAccount(
 	}
 
 	var (
-		boxUser       *box.User
+		boxUser        *box.User
 		alreadyExisted bool
 	)
 

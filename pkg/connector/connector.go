@@ -98,13 +98,15 @@ func (b *Box) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error) {
 }
 
 func (b *Box) Validate(ctx context.Context) (annotations.Annotations, error) {
-	currentUser, err := b.client.GetCurrentUserWithEnterprise(ctx)
-	if err != nil {
+	if _, err := b.client.GetCurrentUserWithEnterprise(ctx); err != nil {
 		return nil, fmt.Errorf("baton-box: failed to authenticate: %w", err)
 	}
 
-	if currentUser.Role != admin {
-		return nil, fmt.Errorf("baton-box: user is not an admin")
+	// Box CCG Service Accounts are not assigned a role designation (role != "admin"),
+	// so role-based validation incorrectly rejects valid setups. Validate admin scope
+	// by exercising a manage-users endpoint: a 403 signals insufficient scope.
+	if err := b.client.CheckAdminAccess(ctx); err != nil {
+		return nil, fmt.Errorf("baton-box: token lacks admin scope (manage users): %w", err)
 	}
 
 	return nil, nil
