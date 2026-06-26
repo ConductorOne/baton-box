@@ -3,11 +3,11 @@ module github.com/conductorone/baton-box
 go 1.25.2
 
 require (
-	github.com/conductorone/baton-sdk v0.15.7
+	github.com/conductorone/baton-sdk v0.16.0
 	github.com/ennyjfrick/ruleguard-logfatal v0.0.2
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	github.com/quasilyte/go-ruleguard/dsl v0.3.23
-	go.uber.org/zap v1.28.0 // indirect
+	go.uber.org/zap v1.28.0
 	golang.org/x/text v0.36.0
 )
 
