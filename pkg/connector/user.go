@@ -56,15 +56,11 @@ func userResource(user *box.User, parentResourceID *v2.ResourceId) (*v2.Resource
 		statusOpt = rs.WithResourceStatus(v2.Status_RESOURCE_STATUS_UNSPECIFIED, "")
 	}
 
-	userTraitOptions := []rs.UserTraitOption{
-		rs.WithEmail(user.Login, true),
-	}
-
 	ret, err := rs.NewUserResource(
 		user.Name,
 		resourceTypeUser,
 		user.ID,
-		userTraitOptions,
+		[]rs.UserTraitOption{rs.WithEmail(user.Login, true)},
 		rs.WithParentResourceID(parentResourceID),
 		rs.WithResourceProfile(profile),
 		statusOpt,
