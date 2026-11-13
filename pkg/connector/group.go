@@ -39,14 +39,13 @@ func groupResource(group *box.Group, parentResourceID *v2.ResourceId) (*v2.Resou
 		"group_name": group.Name,
 	}
 
-	groupTraitOptions := []rs.GroupTraitOption{rs.WithGroupProfile(profile)}
-
 	ret, err := rs.NewGroupResource(
 		group.Name,
 		resourceTypeGroup,
 		group.ID,
-		groupTraitOptions,
+		nil,
 		rs.WithParentResourceID(parentResourceID),
+		rs.WithResourceProfile(profile),
 	)
 	if err != nil {
 		return nil, err
