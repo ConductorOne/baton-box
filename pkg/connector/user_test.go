@@ -76,10 +76,12 @@ func TestDelete_NotFoundIsSuccess(t *testing.T) {
 }
 
 func TestDelete_RefusedWithoutForce(t *testing.T) {
-	o, _ := newDeleteTest(t, false, http.StatusBadRequest, "bad_request")
-	_, err := o.Delete(context.Background(), userID("u1"), nil)
-	if got := status.Code(err); got != codes.FailedPrecondition {
-		t.Fatalf("code = %v, want FailedPrecondition (err: %v)", got, err)
+	for _, respStatus := range []int{http.StatusBadRequest, http.StatusConflict, http.StatusPreconditionFailed} {
+		o, _ := newDeleteTest(t, false, respStatus, "refused")
+		_, err := o.Delete(context.Background(), userID("u1"), nil)
+		if got := status.Code(err); got != codes.FailedPrecondition {
+			t.Errorf("status %d: code = %v, want FailedPrecondition (err: %v)", respStatus, got, err)
+		}
 	}
 }
 
@@ -88,18 +90,20 @@ func TestDelete_OtherErrorsKeepTheirMeaning(t *testing.T) {
 		name        string
 		forceDelete bool
 		respStatus  int
+		wantCode    codes.Code
 	}{
-		{"permission error without force", false, http.StatusForbidden},
-		{"client error with force", true, http.StatusBadRequest},
+		{"rate limited without force", false, http.StatusTooManyRequests, codes.Unavailable},
+		{"permission error without force", false, http.StatusForbidden, codes.PermissionDenied},
+		{"unauthenticated without force", false, http.StatusUnauthorized, codes.Unauthenticated},
+		{"server error without force", false, http.StatusInternalServerError, codes.Unavailable},
+		{"client error with force", true, http.StatusBadRequest, codes.InvalidArgument},
+		{"rate limited with force", true, http.StatusTooManyRequests, codes.Unavailable},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			o, _ := newDeleteTest(t, tt.forceDelete, tt.respStatus, "refused")
 			_, err := o.Delete(context.Background(), userID("u1"), nil)
-			if err == nil {
-				t.Fatal("expected an error")
-			}
-			if status.Code(err) == codes.FailedPrecondition {
-				t.Errorf("got FailedPrecondition, want the plain Box error: %v", err)
+			if got := status.Code(err); got != tt.wantCode {
+				t.Errorf("code = %v, want %v (err: %v)", got, tt.wantCode, err)
 			}
 		})
 	}

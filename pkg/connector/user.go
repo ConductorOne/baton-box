@@ -206,10 +206,11 @@ func (o *userResourceType) Delete(ctx context.Context, resourceID *v2.ResourceId
 				return nil, nil
 			}
 			// Box does not document the error it returns for a user who still owns
-			// content, so treat any client error other than not-found or a permission
-			// error as that case when force is off.
-			if !o.forceDelete && apiErr.Status >= 400 && apiErr.Status < 500 &&
-				apiErr.Status != http.StatusUnauthorized && apiErr.Status != http.StatusForbidden {
+			// content. When force is off, treat the request-rejection statuses Box could
+			// plausibly use for that as this case. Everything else, including 401/403 and
+			// 429 rate limits, keeps the gRPC code doWrite derived from the HTTP status so
+			// it is reported and retried correctly.
+			if !o.forceDelete && isDeleteRefusedStatus(apiErr.Status) {
 				return nil, status.Errorf(codes.FailedPrecondition,
 					"baton-box: Box refused to delete user %s, who may still own files or folders "+
 						"(disable-force-delete is on, so their content is not deleted with them). "+
@@ -219,4 +220,15 @@ func (o *userResourceType) Delete(ctx context.Context, resourceID *v2.ResourceId
 		return nil, fmt.Errorf("baton-box: failed to delete user %s: %w", userID, err)
 	}
 	return nil, nil
+}
+
+// isDeleteRefusedStatus reports whether an HTTP status from DELETE /2.0/users/{id}
+// with force=false may mean Box refused because the user still owns content.
+func isDeleteRefusedStatus(httpStatus int) bool {
+	switch httpStatus {
+	case http.StatusBadRequest, http.StatusConflict, http.StatusPreconditionFailed:
+		return true
+	default:
+		return false
+	}
 }

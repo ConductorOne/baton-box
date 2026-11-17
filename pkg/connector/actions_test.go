@@ -178,22 +178,39 @@ func TestTransferUserFiles_InvalidInput(t *testing.T) {
 }
 
 func TestTransferUserFiles_APIError(t *testing.T) {
-	m := &transferMock{
-		users:          map[string]string{"src": "active", "dst": "active"},
-		transferStatus: http.StatusForbidden,
-		transferCode:   "forbidden_by_policy",
+	tests := []struct {
+		name       string
+		respStatus int
+		respCode   string
+		wantCode   codes.Code
+	}{
+		{"information barrier", http.StatusForbidden, "forbidden_by_policy", codes.PermissionDenied},
+		{"rate limited", http.StatusTooManyRequests, "rate_limit_exceeded", codes.Unavailable},
+		{"server error", http.StatusInternalServerError, "internal_server_error", codes.Unavailable},
 	}
-	o := newTransferTest(t, m)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &transferMock{
+				users:          map[string]string{"src": "active", "dst": "active"},
+				transferStatus: tt.respStatus,
+				transferCode:   tt.respCode,
+			}
+			o := newTransferTest(t, m)
 
-	ret, _, err := o.transferUserFilesActionHandler(context.Background(), transferArgs(t, map[string]interface{}{
-		fieldUserID:     "src",
-		argTargetUserID: "dst",
-	}))
-	if err == nil {
-		t.Fatalf("expected an error, got result %v", ret)
-	}
-	if !strings.Contains(err.Error(), "forbidden_by_policy") {
-		t.Errorf("error %q does not carry the Box error code", err)
+			ret, _, err := o.transferUserFilesActionHandler(context.Background(), transferArgs(t, map[string]interface{}{
+				fieldUserID:     "src",
+				argTargetUserID: "dst",
+			}))
+			if err == nil {
+				t.Fatalf("expected an error, got result %v", ret)
+			}
+			if got := status.Code(err); got != tt.wantCode {
+				t.Errorf("code = %v, want %v (err: %v)", got, tt.wantCode, err)
+			}
+			if !strings.Contains(err.Error(), tt.respCode) {
+				t.Errorf("error %q does not carry the Box error code", err)
+			}
+		})
 	}
 }
 

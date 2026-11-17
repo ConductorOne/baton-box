@@ -387,7 +387,8 @@ func (c *Client) doRequest(ctx context.Context, rawURL string, res interface{}, 
 // doWrite performs a POST, PUT, or DELETE request with a JSON body, decoding the
 // response into res when non-nil. Uses the underlying HTTP client directly so that
 // Box API error codes (e.g. "user_login_already_used") are preserved as *APIError
-// for callers to inspect with errors.As.
+// for callers to inspect with errors.As. Errors carry a gRPC code derived from the
+// HTTP status, plus rate-limit details, via uhttp.WrapErrorsWithRateLimitInfo.
 func (c *Client) doWrite(ctx context.Context, method, rawURL string, body interface{}, res interface{}) error {
 	data, err := json.Marshal(body)
 	if err != nil {
@@ -414,10 +415,13 @@ func (c *Client) doWrite(ctx context.Context, method, rawURL string, body interf
 			Message string `json:"message"`
 			Code    string `json:"code"`
 		}
+		grpcCode := uhttp.GrpcCodeFromHTTPStatus(resp.StatusCode)
 		if decErr := json.NewDecoder(resp.Body).Decode(&errResp); decErr != nil {
-			return fmt.Errorf("baton-box: request failed (status %d, decode error: %w)", resp.StatusCode, decErr)
+			return uhttp.WrapErrorsWithRateLimitInfo(grpcCode, resp,
+				fmt.Errorf("baton-box: request failed (status %d, decode error: %w)", resp.StatusCode, decErr))
 		}
-		return &APIError{Message: errResp.Message, Code: errResp.Code, Status: resp.StatusCode}
+		return uhttp.WrapErrorsWithRateLimitInfo(grpcCode, resp,
+			&APIError{Message: errResp.Message, Code: errResp.Code, Status: resp.StatusCode})
 	}
 
 	if res != nil && resp.StatusCode != http.StatusNoContent {
