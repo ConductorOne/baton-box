@@ -7,6 +7,7 @@ type Box struct {
 	BoxClientId string `mapstructure:"box-client-id"`
 	BoxClientSecret string `mapstructure:"box-client-secret"`
 	EnterpriseId string `mapstructure:"enterprise-id"`
+	DisableForceDelete bool `mapstructure:"disable-force-delete"`
 	BaseUrl string `mapstructure:"base-url"`
 }
 

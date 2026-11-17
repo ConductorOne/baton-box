@@ -26,7 +26,7 @@ func main() {
 }
 
 func getConnector(ctx context.Context, c *cfg.Box, _ *cli.ConnectorOpts) (connectorbuilder.ConnectorBuilderV2, []connectorbuilder.Opt, error) {
-	cb, err := connector.New(ctx, c.BoxClientId, c.BoxClientSecret, c.EnterpriseId, c.BaseUrl)
+	cb, err := connector.New(ctx, c.BoxClientId, c.BoxClientSecret, c.EnterpriseId, c.BaseUrl, c.DisableForceDelete)
 	if err != nil {
 		return nil, nil, err
 	}

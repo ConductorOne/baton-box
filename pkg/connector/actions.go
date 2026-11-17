@@ -2,13 +2,18 @@ package connector
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
+	"time"
 
 	config "github.com/conductorone/baton-sdk/pb/c1/config/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/actions"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -18,15 +23,31 @@ const (
 	actionUpdateProfile = "update_profile"
 	actionDisableUser   = "disable_user"
 	actionEnableUser    = "enable_user"
+	actionTransferFiles = "transfer_user_files"
 
 	argUserResourceIDDisplay = "User Resource ID"
+	argTargetUserID          = "target_user_id"
+	argNotify                = "notify"
 	retSuccessKey            = "success"
 	retSuccessDisplay        = "Success"
+	retFolderIDKey           = "folder_id"
+	retFolderNameKey         = "folder_name"
+	retStatusKey             = "status"
+
+	transferStatusCompleted  = "completed"
+	transferStatusInProgress = "in_progress"
 )
 
-// ACTION_TYPE_ACCOUNT is intentionally omitted from all three schemas: the SDK's
-// ResourceActionProvider duplicate-type check rejects the same ActionType appearing
-// in more than one action registered for the same resource type.
+// transferWaitTimeout is how long the transfer action waits for Box to answer.
+// Box holds the request open while it moves content (up to 10 minutes), which is
+// longer than a connector action may run on the platform, so after this window the
+// action stops waiting and reports the transfer as in progress. A variable so tests
+// can shorten it.
+var transferWaitTimeout = 150 * time.Second
+
+// The SDK's ResourceActionProvider duplicate-type check rejects the same ActionType
+// appearing in more than one action registered for the same resource type, so
+// ACTION_TYPE_ACCOUNT is used only by the transfer action.
 
 var successReturnType = []*config.Field{
 	{Name: retSuccessKey, DisplayName: retSuccessDisplay, Field: &config.Field_BoolField{}},
@@ -101,6 +122,59 @@ var enableUserActionSchema = &v2.BatonActionSchema{
 	},
 }
 
+var transferUserFilesActionSchema = &v2.BatonActionSchema{
+	Name:        actionTransferFiles,
+	DisplayName: "Transfer User Files",
+	Description: "Moves all files and folders a Box user owns into a new folder in another user's account. " +
+		"Returns status completed when Box finishes within 2.5 minutes, or in_progress when the transfer is still running in Box.",
+	Arguments: []*config.Field{
+		{
+			Name:        fieldUserID,
+			DisplayName: "Source User Resource ID",
+			Description: "The Box user ID to transfer files and folders from",
+			Field:       &config.Field_StringField{},
+			IsRequired:  true,
+		},
+		{
+			Name:        argTargetUserID,
+			DisplayName: "Target User Resource ID",
+			Description: "The Box user ID to receive the files and folders. Must be an active user.",
+			Field:       &config.Field_StringField{},
+			IsRequired:  true,
+		},
+		{
+			Name:        argNotify,
+			DisplayName: "Notify",
+			Description: "Whether Box sends email notifications about the transfer. Defaults to false.",
+			Field:       &config.Field_BoolField{},
+		},
+	},
+	ReturnTypes: []*config.Field{
+		{Name: retSuccessKey, DisplayName: retSuccessDisplay, Field: &config.Field_BoolField{}},
+		{
+			Name:        retStatusKey,
+			DisplayName: "Transfer Status",
+			Description: "completed when Box finished the transfer, or in_progress when Box is still moving content",
+			Field:       &config.Field_StringField{},
+		},
+		{
+			Name:        retFolderIDKey,
+			DisplayName: "Folder ID",
+			Description: "ID of the folder Box created in the target user's account. Empty while the transfer is in progress.",
+			Field:       &config.Field_StringField{},
+		},
+		{
+			Name:        retFolderNameKey,
+			DisplayName: "Folder Name",
+			Description: "Name of the folder in the target user's account that holds the transferred content",
+			Field:       &config.Field_StringField{},
+		},
+	},
+	ActionType: []v2.ActionType{
+		v2.ActionType_ACTION_TYPE_ACCOUNT,
+	},
+}
+
 var _ connectorbuilder.ResourceActionProvider = (*userResourceType)(nil)
 
 func (o *userResourceType) ResourceActions(ctx context.Context, registry actions.ActionRegistry) error {
@@ -110,7 +184,10 @@ func (o *userResourceType) ResourceActions(ctx context.Context, registry actions
 	if err := registry.Register(ctx, disableUserActionSchema, o.disableUserActionHandler); err != nil {
 		return err
 	}
-	return registry.Register(ctx, enableUserActionSchema, o.enableUserActionHandler)
+	if err := registry.Register(ctx, enableUserActionSchema, o.enableUserActionHandler); err != nil {
+		return err
+	}
+	return registry.Register(ctx, transferUserFilesActionSchema, o.transferUserFilesActionHandler)
 }
 
 func (o *userResourceType) updateProfileActionHandler(ctx context.Context, args *structpb.Struct) (*structpb.Struct, annotations.Annotations, error) {
@@ -183,6 +260,106 @@ func (o *userResourceType) enableUserActionHandler(ctx context.Context, args *st
 	}
 
 	return successStruct(), nil, nil
+}
+
+func (o *userResourceType) transferUserFilesActionHandler(ctx context.Context, args *structpb.Struct) (*structpb.Struct, annotations.Annotations, error) {
+	if args == nil {
+		return nil, nil, status.Error(codes.InvalidArgument, "invalid arguments")
+	}
+
+	sourceID, err := extractStringArg(args, fieldUserID, true)
+	if err != nil {
+		return nil, nil, err
+	}
+	targetID, err := extractStringArg(args, argTargetUserID, true)
+	if err != nil {
+		return nil, nil, err
+	}
+	sourceID, targetID = strings.TrimSpace(sourceID), strings.TrimSpace(targetID)
+	if sourceID == "" || targetID == "" {
+		return nil, nil, status.Errorf(codes.InvalidArgument, "%s and %s must not be empty", fieldUserID, argTargetUserID)
+	}
+	if sourceID == targetID {
+		return nil, nil, status.Errorf(codes.InvalidArgument, "%s and %s must be different users", fieldUserID, argTargetUserID)
+	}
+	notify, err := extractBoolArg(args, argNotify)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	source, err := o.client.GetUser(ctx, sourceID)
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			return nil, nil, status.Errorf(codes.InvalidArgument, "baton-box: source user %s not found", sourceID)
+		}
+		return nil, nil, fmt.Errorf("baton-box: failed to get source user %s: %w", sourceID, err)
+	}
+	target, err := o.client.GetUser(ctx, targetID)
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			return nil, nil, status.Errorf(codes.InvalidArgument, "baton-box: target user %s not found", targetID)
+		}
+		return nil, nil, fmt.Errorf("baton-box: failed to get target user %s: %w", targetID, err)
+	}
+	if target.Status != "active" {
+		return nil, nil, status.Errorf(codes.FailedPrecondition, "baton-box: target user %s is %s, not active", targetID, target.Status)
+	}
+
+	transferCtx, cancel := context.WithTimeout(ctx, transferWaitTimeout)
+	defer cancel()
+
+	folder, err := o.client.TransferOwnedItems(transferCtx, sourceID, targetID, notify)
+	if err != nil {
+		// Only our own wait window expiring means "still running"; a cancelled or
+		// expired parent context is a real failure.
+		if ctx.Err() == nil && errors.Is(transferCtx.Err(), context.DeadlineExceeded) {
+			ctxzap.Extract(ctx).Debug("baton-box: Box did not answer the transfer request within the wait window; reporting it as in progress",
+				zap.String("source_user_id", sourceID),
+				zap.String("target_user_id", targetID),
+				zap.Duration("wait", transferWaitTimeout),
+			)
+			return transferResult(transferStatusInProgress, "", expectedTransferFolderName(source.Name)), nil, nil
+		}
+		return nil, nil, fmt.Errorf("baton-box: failed to transfer files from user %s to user %s: %w", sourceID, targetID, err)
+	}
+
+	folderName := folder.Name
+	if folderName == "" {
+		folderName = expectedTransferFolderName(source.Name)
+	}
+	return transferResult(transferStatusCompleted, folder.ID, folderName), nil, nil
+}
+
+// expectedTransferFolderName returns the name Box gives the folder it creates in the
+// target user's account: "{User}'s Files and Folders", where {User} is the source
+// user's name.
+func expectedTransferFolderName(sourceUserName string) string {
+	return sourceUserName + "'s Files and Folders"
+}
+
+func transferResult(transferStatus, folderID, folderName string) *structpb.Struct {
+	ret := successStruct()
+	ret.Fields[retStatusKey] = structpb.NewStringValue(transferStatus)
+	ret.Fields[retFolderIDKey] = structpb.NewStringValue(folderID)
+	ret.Fields[retFolderNameKey] = structpb.NewStringValue(folderName)
+	return ret
+}
+
+// extractBoolArg reads an optional bool field from a structpb.Struct. An absent field
+// reads as false; a field of any other type is an InvalidArgument error.
+func extractBoolArg(args *structpb.Struct, key string) (bool, error) {
+	val, ok := args.Fields[key]
+	if !ok || val == nil {
+		return false, nil
+	}
+	if _, isNull := val.GetKind().(*structpb.Value_NullValue); isNull {
+		return false, nil
+	}
+	bv, ok := val.GetKind().(*structpb.Value_BoolValue)
+	if !ok {
+		return false, status.Errorf(codes.InvalidArgument, "%s must be a boolean", key)
+	}
+	return bv.BoolValue, nil
 }
 
 // extractStringArg reads a string field from a structpb.Struct.

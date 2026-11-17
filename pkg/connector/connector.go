@@ -46,9 +46,13 @@ var (
 
 type Box struct {
 	client *box.Client
+	// forceDelete makes account deletion also delete the content the user still owns.
+	forceDelete bool
 }
 
-func New(ctx context.Context, clientId string, clientSecret string, enterpriseId string, baseURL string) (*Box, error) {
+// New builds the Box connector. When disableForceDelete is true, deleting a user who
+// still owns files or folders fails instead of deleting that content.
+func New(ctx context.Context, clientId string, clientSecret string, enterpriseId string, baseURL string, disableForceDelete bool) (*Box, error) {
 	httpClient, err := uhttp.NewClient(ctx, uhttp.WithLogger(true, ctxzap.Extract(ctx)))
 	if err != nil {
 		return nil, err
@@ -63,7 +67,7 @@ func New(ctx context.Context, clientId string, clientSecret string, enterpriseId
 	if err != nil {
 		return nil, err
 	}
-	return &Box{client: client}, nil
+	return &Box{client: client, forceDelete: !disableForceDelete}, nil
 }
 
 func (b *Box) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error) {
@@ -116,7 +120,7 @@ var _ connectorbuilder.ConnectorBuilderV2 = (*Box)(nil)
 
 func (b *Box) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncerV2 {
 	return []connectorbuilder.ResourceSyncerV2{
-		userBuilder(b.client),
+		userBuilder(b.client, b.forceDelete),
 		groupBuilder(b.client),
 		enterpriseBuilder(b.client),
 		roleBuilder(b.client),

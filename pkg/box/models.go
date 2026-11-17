@@ -41,3 +41,14 @@ type CreateUserInput struct {
 	Role   string `json:"role,omitempty"`
 	Status string `json:"status,omitempty"`
 }
+
+// Folder is the subset of a Box folder returned by the transfer owned folders endpoint.
+type Folder struct {
+	BaseType
+	Name string `json:"name"`
+}
+
+// transferOwnedFolderInput is the body sent to PUT /2.0/users/{id}/folders/0.
+type transferOwnedFolderInput struct {
+	OwnedBy BaseType `json:"owned_by"`
+}

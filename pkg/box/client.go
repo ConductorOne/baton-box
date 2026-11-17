@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -29,6 +30,7 @@ const (
 	pathUsers       = "/2.0/users"
 	pathGroups      = "/2.0/groups"
 	pathCurrentUser = "/2.0/users/me"
+	pathRootFolder  = "folders/0"
 )
 
 // APIError carries a structured Box API error so callers can check error codes with errors.As.
@@ -302,17 +304,38 @@ func (c *Client) DeactivateUser(ctx context.Context, userID string) error {
 }
 
 // DeleteUser permanently deletes a Box user via DELETE /2.0/users/{id}.
-// force=true removes the user even when they still have content.
+// With force=true Box removes the user even when they still own content, and deletes
+// that content; with force=false Box refuses to delete a user who still owns content.
 // notify=false suppresses the email notification sent to the user.
-func (c *Client) DeleteUser(ctx context.Context, userID string) error {
+func (c *Client) DeleteUser(ctx context.Context, userID string, force bool) error {
 	userURL, err := url.JoinPath(c.baseURL, pathUsers, userID)
 	if err != nil {
 		return fmt.Errorf("baton-box: building user url: %w", err)
 	}
 	q := url.Values{}
-	q.Set("force", "true")
+	q.Set("force", strconv.FormatBool(force))
 	q.Set("notify", "false")
 	return c.doWrite(ctx, http.MethodDelete, userURL+"?"+q.Encode(), nil, nil)
+}
+
+// TransferOwnedItems moves every item owned by sourceUserID into a new folder in
+// destUserID's account via PUT /2.0/users/{id}/folders/0, and returns that folder.
+// Box names it "{User}'s Files and Folders". Large transfers keep running in the
+// background after Box responds, and Box offers no endpoint to check completion.
+func (c *Client) TransferOwnedItems(ctx context.Context, sourceUserID, destUserID string, notify bool) (*Folder, error) {
+	folderURL, err := url.JoinPath(c.baseURL, pathUsers, sourceUserID, pathRootFolder)
+	if err != nil {
+		return nil, fmt.Errorf("baton-box: building transfer url: %w", err)
+	}
+	q := url.Values{}
+	q.Set("notify", strconv.FormatBool(notify))
+
+	body := transferOwnedFolderInput{OwnedBy: BaseType{ID: destUserID, Type: "user"}}
+	var res Folder
+	if err := c.doWrite(ctx, http.MethodPut, folderURL+"?"+q.Encode(), body, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
 }
 
 // ActivateUser sets a Box user's status back to active.

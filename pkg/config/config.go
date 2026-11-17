@@ -26,6 +26,14 @@ var (
 		field.WithDescription("ID of your Box enterprise."),
 		field.WithRequired(true),
 	)
+	DisableForceDeleteField = field.BoolField(
+		"disable-force-delete",
+		field.WithDisplayName("Keep users who still own content"),
+		field.WithDescription("When enabled, deleting a Box user fails while they still own files or folders, "+
+			"instead of deleting that content with them. Use it with the transfer_user_files action so content "+
+			"that has not been transferred yet is never deleted."),
+		field.WithDefaultValue(false),
+	)
 	BaseURLField = field.StringField(
 		"base-url",
 		field.WithDescription("Override the Box API URL (for testing or enterprise deployments)"),
@@ -39,6 +47,7 @@ var Config = field.NewConfiguration([]field.SchemaField{
 	ClientID,
 	ClientSecret,
 	EnterpriseID,
+	DisableForceDeleteField,
 	BaseURLField,
 },
 	field.WithConnectorDisplayName("Box"),
