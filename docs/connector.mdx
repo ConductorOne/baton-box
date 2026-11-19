@@ -20,6 +20,34 @@ sidebarTitle: "Box"
 
 {/* AUTO-GENERATED:END - capabilities */}
 
+### Connector actions
+
+Connector actions are custom capabilities that extend C1 automations with app-specific operations. You can use connector actions in the [Perform connector action](/product/admin/automations-steps-reference#perform-connector-action) automation step. Enabling and disabling accounts uses the [Account lifecycle action](/product/admin/automations-steps-reference#account-lifecycle-action) step.
+
+| Action name | Additional fields | Description |
+|-------------|-------------------|-------------|
+| update_profile | `user_id` (string, required)<br/>`name` (string, optional)<br/>`login` (string, optional) | Updates a user's name and/or login (email address). At least one of `name` or `login` is required. |
+| disable_user | `user_id` (string, required) | Sets a user's status to inactive. Reversible with `enable_user`. |
+| enable_user | `user_id` (string, required) | Sets a user's status back to active. Fails for users who are still pending email confirmation. |
+| transfer_user_files | `user_id` (string, required)<br/>`target_user_id` (string, required)<br/>`notify` (boolean, optional) | Moves all files and folders the source user owns into a new folder in the target user's account, named `{User}'s Files and Folders` after the source user. The target user must exist, be active, and differ from the source user. `notify` controls whether Box sends email notifications about the transfer and defaults to `false`. Returns `status`, `folder_id`, and `folder_name`. |
+
+#### Transfer status
+
+`transfer_user_files` waits up to 2.5 minutes for Box to finish and returns one of two statuses:
+
+- `status: completed`: Box finished the transfer. `folder_id` and `folder_name` identify the new folder in the target user's account.
+- `status: in_progress`: Box is still moving content. The transfer continues in Box, and Box emails the enterprise admins when it completes. `folder_id` is empty, and `folder_name` is the name Box gives the folder.
+
+A Box error, such as a transfer blocked by an information barrier (`forbidden_by_policy`), fails the action.
+
+<Warning>
+By default, deprovisioning a Box account also deletes the files and folders the user still owns. Do not deprovision the source user while a transfer is `in_progress`, or content that has not moved yet is lost. In an offboarding automation, branch on `status` and add a wait before deprovisioning when it is `in_progress`.
+</Warning>
+
+To make deprovisioning safe even without a wait, turn on **Keep users who still own content** (`disable-force-delete`) in the connector settings. Box then refuses to delete a user who still owns files or folders, and the deprovisioning step fails instead of deleting that content. Retry it once the transfer has finished.
+
+`transfer_user_files` needs the **Read and write all files and folders stored in Box** application scope (see [Configure your Box app and gain approval](#configure-your-box-app-and-gain-approval)). If you add the scope to an existing app, a Box Admin must re-approve the app. Box does not allow transferring content to or from other admins or co-admins.
+
 ## Gather Box credentials
 
 Configuring the connector requires you to pass in credentials generated in Box. Gather these credentials before you move on.
@@ -63,6 +91,7 @@ A user with an administrator role in Box and two-factor authentication set on th
 	- Manage groups
 	- Manage enterprise properties
 	- Grant read resource
+	- Read and write all files and folders stored in Box (only needed for the `transfer_user_files` action)
     </Step>
     <Step>
     In the **Application Access** area, select **App + Enterprise Access**.
@@ -172,6 +201,9 @@ A user with an administrator role in Box and two-factor authentication set on th
     Enter the enterprise ID into the **Enterprise ID** field.
     </Step>
     <Step>
+    **Optional.** Turn on **Keep users who still own content** to stop deprovisioning from deleting a user's remaining files and folders. See [Transfer status](#transfer-status).
+    </Step>
+    <Step>
     Click **Save**.
     </Step>
     <Step>
@@ -244,6 +276,12 @@ stringData:
   BATON_BOX_CLIENT_ID: <Client ID used to authenticate to the Box API>
   BATON_BOX_CLIENT_SECRET: <Client secret used to authenticate to the Box API>
   BATON_ENTERPRISE_ID: <ID of your Box app>
+
+  # Optional: refuse to delete users who still own files or folders (default: false)
+  BATON_DISABLE_FORCE_DELETE: "false"
+
+  # Required to enable provisioning and connector actions
+  BATON_PROVISIONING: "true"
 ```
 
 See the connector's README or run `--help` to see all available configuration flags and environment variables.

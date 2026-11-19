@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/conductorone/baton-box/pkg/box"
+	cfg "github.com/conductorone/baton-box/pkg/config"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
@@ -46,24 +47,28 @@ var (
 
 type Box struct {
 	client *box.Client
+	// forceDelete makes account deletion also delete the content the user still owns.
+	forceDelete bool
 }
 
-func New(ctx context.Context, clientId string, clientSecret string, enterpriseId string, baseURL string) (*Box, error) {
+// New builds the Box connector. When DisableForceDelete is set, deleting a user who
+// still owns files or folders fails instead of deleting that content.
+func New(ctx context.Context, cc *cfg.Box) (*Box, error) {
 	httpClient, err := uhttp.NewClient(ctx, uhttp.WithLogger(true, ctxzap.Extract(ctx)))
 	if err != nil {
 		return nil, err
 	}
 
-	token, err := box.RequestAccessToken(ctx, clientId, clientSecret, enterpriseId, baseURL)
+	token, err := box.RequestAccessToken(ctx, cc.BoxClientId, cc.BoxClientSecret, cc.EnterpriseId, cc.BaseUrl)
 	if err != nil {
 		return nil, fmt.Errorf("baton-box: failed to get token: %w", err)
 	}
 
-	client, err := box.NewClient(httpClient, token, baseURL)
+	client, err := box.NewClient(httpClient, token, cc.BaseUrl)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("baton-box: %w", err)
 	}
-	return &Box{client: client}, nil
+	return &Box{client: client, forceDelete: !cc.DisableForceDelete}, nil
 }
 
 func (b *Box) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error) {
@@ -116,7 +121,7 @@ var _ connectorbuilder.ConnectorBuilderV2 = (*Box)(nil)
 
 func (b *Box) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncerV2 {
 	return []connectorbuilder.ResourceSyncerV2{
-		userBuilder(b.client),
+		userBuilder(b.client, b.forceDelete),
 		groupBuilder(b.client),
 		enterpriseBuilder(b.client),
 		roleBuilder(b.client),

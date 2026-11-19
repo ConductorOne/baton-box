@@ -1,13 +1,14 @@
 package box
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -29,6 +30,7 @@ const (
 	pathUsers       = "/2.0/users"
 	pathGroups      = "/2.0/groups"
 	pathCurrentUser = "/2.0/users/me"
+	pathRootFolder  = "folders/0"
 )
 
 // APIError carries a structured Box API error so callers can check error codes with errors.As.
@@ -47,7 +49,7 @@ func NewClient(httpClient *http.Client, token string, baseURL string) (*Client, 
 		baseURL = defaultBaseURL
 	}
 	if _, err := url.Parse(baseURL); err != nil {
-		return nil, fmt.Errorf("baton-box: invalid base URL %q: %w", baseURL, err)
+		return nil, fmt.Errorf("invalid base URL %q: %w", baseURL, err)
 	}
 	return &Client{
 		httpClient: uhttp.NewBaseHttpClient(httpClient),
@@ -67,7 +69,7 @@ func RequestAccessToken(ctx context.Context, clientID string, clientSecret strin
 	}
 	authURL, err := url.JoinPath(baseURL, "/oauth2/token")
 	if err != nil {
-		return "", fmt.Errorf("baton-box: building auth url: %w", err)
+		return "", fmt.Errorf("building auth url: %w", err)
 	}
 	data := url.Values{}
 	data.Add("client_id", clientID)
@@ -112,7 +114,7 @@ func RequestAccessToken(ctx context.Context, clientID string, clientSecret strin
 func (c *Client) GetUsers(ctx context.Context, marker string) ([]User, string, annotations.Annotations, error) {
 	usersURL, err := url.JoinPath(c.baseURL, pathUsers)
 	if err != nil {
-		return nil, "", nil, fmt.Errorf("baton-box: building users url: %w", err)
+		return nil, "", nil, fmt.Errorf("building users url: %w", err)
 	}
 
 	var res struct {
@@ -124,7 +126,7 @@ func (c *Client) GetUsers(ctx context.Context, marker string) ([]User, string, a
 
 	annos, err := c.doRequest(ctx, usersURL, &res, q)
 	if err != nil {
-		return nil, "", nil, fmt.Errorf("baton-box: failed to get users: %w", err)
+		return nil, "", nil, fmt.Errorf("failed to get users: %w", err)
 	}
 
 	return res.Users, res.NextMarker, annos, nil
@@ -134,7 +136,7 @@ func (c *Client) GetUsers(ctx context.Context, marker string) ([]User, string, a
 func (c *Client) GetGroups(ctx context.Context, marker string) ([]Group, string, annotations.Annotations, error) {
 	groupsURL, err := url.JoinPath(c.baseURL, pathGroups)
 	if err != nil {
-		return nil, "", nil, fmt.Errorf("baton-box: building groups url: %w", err)
+		return nil, "", nil, fmt.Errorf("building groups url: %w", err)
 	}
 
 	var res struct {
@@ -146,7 +148,7 @@ func (c *Client) GetGroups(ctx context.Context, marker string) ([]Group, string,
 
 	annos, err := c.doRequest(ctx, groupsURL, &res, q)
 	if err != nil {
-		return nil, "", nil, fmt.Errorf("baton-box: failed to get groups: %w", err)
+		return nil, "", nil, fmt.Errorf("failed to get groups: %w", err)
 	}
 
 	return res.Groups, res.NextMarker, annos, nil
@@ -154,9 +156,9 @@ func (c *Client) GetGroups(ctx context.Context, marker string) ([]Group, string,
 
 // GetGroupMemberships returns one page of memberships for the given group.
 func (c *Client) GetGroupMemberships(ctx context.Context, groupId string, marker string) ([]GroupMembership, string, annotations.Annotations, error) {
-	membershipsURL, err := url.JoinPath(c.baseURL, pathGroups, groupId, "memberships")
+	membershipsURL, err := url.JoinPath(c.baseURL, pathGroups, url.PathEscape(groupId), "memberships")
 	if err != nil {
-		return nil, "", nil, fmt.Errorf("baton-box: building memberships url: %w", err)
+		return nil, "", nil, fmt.Errorf("building memberships url: %w", err)
 	}
 
 	var res struct {
@@ -166,7 +168,7 @@ func (c *Client) GetGroupMemberships(ctx context.Context, groupId string, marker
 
 	annos, err := c.doRequest(ctx, membershipsURL, &res, markerQuery(marker))
 	if err != nil {
-		return nil, "", nil, fmt.Errorf("baton-box: failed to get group memberships: %w", err)
+		return nil, "", nil, fmt.Errorf("failed to get group memberships: %w", err)
 	}
 
 	return res.GroupMembership, res.NextMarker, annos, nil
@@ -176,14 +178,14 @@ func (c *Client) GetGroupMemberships(ctx context.Context, groupId string, marker
 func (c *Client) GetCurrentUserWithEnterprise(ctx context.Context) (User, error) {
 	usersURL, err := url.JoinPath(c.baseURL, pathCurrentUser)
 	if err != nil {
-		return User{}, fmt.Errorf("baton-box: building current user url: %w", err)
+		return User{}, fmt.Errorf("building current user url: %w", err)
 	}
 	params := url.Values{}
 	params.Set("fields", "enterprise,role,name")
 
 	var res User
 	if _, err := c.doRequest(ctx, usersURL, &res, params); err != nil {
-		return User{}, fmt.Errorf("baton-box: failed to get current user: %w", err)
+		return User{}, fmt.Errorf("failed to get current user: %w", err)
 	}
 
 	return res, nil
@@ -191,15 +193,15 @@ func (c *Client) GetCurrentUserWithEnterprise(ctx context.Context) (User, error)
 
 // GetUser fetches a single Box user by ID.
 func (c *Client) GetUser(ctx context.Context, userID string) (*User, error) {
-	userURL, err := url.JoinPath(c.baseURL, pathUsers, userID)
+	userURL, err := url.JoinPath(c.baseURL, pathUsers, url.PathEscape(userID))
 	if err != nil {
-		return nil, fmt.Errorf("baton-box: building user url: %w", err)
+		return nil, fmt.Errorf("building user url: %w", err)
 	}
 	q := url.Values{}
 	q.Set("fields", "id,role,name,login,status")
 	var res User
 	if _, err := c.doRequest(ctx, userURL, &res, q); err != nil {
-		return nil, fmt.Errorf("baton-box: failed to get user %s: %w", userID, err)
+		return nil, fmt.Errorf("failed to get user %s: %w", userID, err)
 	}
 	return &res, nil
 }
@@ -210,7 +212,7 @@ func (c *Client) GetUser(ctx context.Context, userID string) (*User, error) {
 func (c *Client) CheckAdminAccess(ctx context.Context) error {
 	usersURL, err := url.JoinPath(c.baseURL, pathUsers)
 	if err != nil {
-		return fmt.Errorf("baton-box: building users url: %w", err)
+		return fmt.Errorf("building users url: %w", err)
 	}
 	q := markerQuery("")
 	q.Set("limit", "1")
@@ -225,9 +227,9 @@ func (c *Client) CheckAdminAccess(ctx context.Context) error {
 
 // GetGroup returns Box group details.
 func (c *Client) GetGroup(ctx context.Context, groupId string) (Group, error) {
-	groupURL, err := url.JoinPath(c.baseURL, pathGroups, groupId)
+	groupURL, err := url.JoinPath(c.baseURL, pathGroups, url.PathEscape(groupId))
 	if err != nil {
-		return Group{}, fmt.Errorf("baton-box: building group url: %w", err)
+		return Group{}, fmt.Errorf("building group url: %w", err)
 	}
 
 	var res Group
@@ -235,7 +237,7 @@ func (c *Client) GetGroup(ctx context.Context, groupId string) (Group, error) {
 	params.Set("fields", "invitability_level,member_viewability_level,name")
 
 	if _, err := c.doRequest(ctx, groupURL, &res, params); err != nil {
-		return Group{}, fmt.Errorf("baton-box: failed to get group: %w", err)
+		return Group{}, fmt.Errorf("failed to get group: %w", err)
 	}
 
 	return res, nil
@@ -246,7 +248,7 @@ func (c *Client) GetGroup(ctx context.Context, groupId string) (Group, error) {
 func (c *Client) GetUserByLogin(ctx context.Context, login string) (*User, error) {
 	usersURL, err := url.JoinPath(c.baseURL, pathUsers)
 	if err != nil {
-		return nil, fmt.Errorf("baton-box: building users url: %w", err)
+		return nil, fmt.Errorf("building users url: %w", err)
 	}
 	q := markerQuery("")
 	q.Set("filter_term", login)
@@ -258,7 +260,7 @@ func (c *Client) GetUserByLogin(ctx context.Context, login string) (*User, error
 	}
 
 	if _, err := c.doRequest(ctx, usersURL, &res, q); err != nil {
-		return nil, fmt.Errorf("baton-box: failed to get user by login: %w", err)
+		return nil, fmt.Errorf("failed to get user by login: %w", err)
 	}
 
 	for i := range res.Users {
@@ -273,7 +275,7 @@ func (c *Client) GetUserByLogin(ctx context.Context, login string) (*User, error
 func (c *Client) CreateUser(ctx context.Context, input CreateUserInput) (*User, error) {
 	userURL, err := url.JoinPath(c.baseURL, pathUsers)
 	if err != nil {
-		return nil, fmt.Errorf("baton-box: building users url: %w", err)
+		return nil, fmt.Errorf("building users url: %w", err)
 	}
 	var res User
 	if err := c.doWrite(ctx, http.MethodPost, userURL, input, &res); err != nil {
@@ -284,9 +286,9 @@ func (c *Client) CreateUser(ctx context.Context, input CreateUserInput) (*User, 
 
 // UpdateUser updates a Box user's properties via PUT /2.0/users/{user_id}.
 func (c *Client) UpdateUser(ctx context.Context, userID string, updates map[string]interface{}) (*User, error) {
-	userURL, err := url.JoinPath(c.baseURL, pathUsers, userID)
+	userURL, err := url.JoinPath(c.baseURL, pathUsers, url.PathEscape(userID))
 	if err != nil {
-		return nil, fmt.Errorf("baton-box: building user url: %w", err)
+		return nil, fmt.Errorf("building user url: %w", err)
 	}
 	var res User
 	if err := c.doWrite(ctx, http.MethodPut, userURL, updates, &res); err != nil {
@@ -302,17 +304,38 @@ func (c *Client) DeactivateUser(ctx context.Context, userID string) error {
 }
 
 // DeleteUser permanently deletes a Box user via DELETE /2.0/users/{id}.
-// force=true removes the user even when they still have content.
+// With force=true Box removes the user even when they still own content, and deletes
+// that content; with force=false Box refuses to delete a user who still owns content.
 // notify=false suppresses the email notification sent to the user.
-func (c *Client) DeleteUser(ctx context.Context, userID string) error {
-	userURL, err := url.JoinPath(c.baseURL, pathUsers, userID)
+func (c *Client) DeleteUser(ctx context.Context, userID string, force bool) error {
+	userURL, err := url.JoinPath(c.baseURL, pathUsers, url.PathEscape(userID))
 	if err != nil {
-		return fmt.Errorf("baton-box: building user url: %w", err)
+		return fmt.Errorf("building user url: %w", err)
 	}
 	q := url.Values{}
-	q.Set("force", "true")
+	q.Set("force", strconv.FormatBool(force))
 	q.Set("notify", "false")
 	return c.doWrite(ctx, http.MethodDelete, userURL+"?"+q.Encode(), nil, nil)
+}
+
+// TransferOwnedItems moves every item owned by sourceUserID into a new folder in
+// destUserID's account via PUT /2.0/users/{id}/folders/0, and returns that folder.
+// Box names it "{User}'s Files and Folders". Large transfers keep running in the
+// background after Box responds, and Box offers no endpoint to check completion.
+func (c *Client) TransferOwnedItems(ctx context.Context, sourceUserID, destUserID string, notify bool) (*Folder, error) {
+	folderURL, err := url.JoinPath(c.baseURL, pathUsers, url.PathEscape(sourceUserID), pathRootFolder)
+	if err != nil {
+		return nil, fmt.Errorf("building transfer url: %w", err)
+	}
+	q := url.Values{}
+	q.Set("notify", strconv.FormatBool(notify))
+
+	body := transferOwnedFolderInput{OwnedBy: BaseType{ID: destUserID, Type: "user"}}
+	var res Folder
+	if err := c.doWrite(ctx, http.MethodPut, folderURL+"?"+q.Encode(), body, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
 }
 
 // ActivateUser sets a Box user's status back to active.
@@ -327,7 +350,7 @@ func (c *Client) ActivateUser(ctx context.Context, userID string) error {
 func (c *Client) doRequest(ctx context.Context, rawURL string, res interface{}, params url.Values) (annotations.Annotations, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return nil, fmt.Errorf("baton-box: parsing url: %w", err)
+		return nil, fmt.Errorf("parsing url: %w", err)
 	}
 	if params != nil {
 		u.RawQuery = params.Encode()
@@ -354,54 +377,49 @@ func (c *Client) doRequest(ctx context.Context, rawURL string, res interface{}, 
 
 	if res != nil {
 		if decErr := json.NewDecoder(resp.Body).Decode(res); decErr != nil {
-			return annos, fmt.Errorf("baton-box: decoding response: %w", decErr)
+			return annos, fmt.Errorf("decoding response: %w", decErr)
 		}
 	}
 
 	return annos, nil
 }
 
-// doWrite performs a POST, PUT, or DELETE request with a JSON body, decoding the
-// response into res when non-nil. Uses the underlying HTTP client directly so that
-// Box API error codes (e.g. "user_login_already_used") are preserved as *APIError
-// for callers to inspect with errors.As.
+// doWrite performs a POST, PUT, or DELETE request through uhttp, sending body as JSON
+// when non-nil and decoding the response into res when non-nil. On an error status
+// the returned error carries the gRPC code uhttp derives from the HTTP status, plus
+// rate-limit details, joined with an *APIError holding Box's error code (e.g.
+// "user_login_already_used") so callers can inspect it with errors.As.
 func (c *Client) doWrite(ctx context.Context, method, rawURL string, body interface{}, res interface{}) error {
-	data, err := json.Marshal(body)
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("parsing url: %w", err)
+	}
+
+	reqOpts := []uhttp.RequestOption{uhttp.WithBearerToken(c.token), uhttp.WithAcceptJSONHeader()}
+	if body != nil {
+		reqOpts = append(reqOpts, uhttp.WithJSONBody(body))
+	}
+	req, err := c.httpClient.NewRequest(ctx, method, u, reqOpts...)
 	if err != nil {
 		return err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, rawURL, bytes.NewReader(data))
+	var errBody errorResponse
+	doOpts := []uhttp.DoOption{uhttp.WithErrorResponse(&errBody)}
+	if res != nil {
+		// Only when there is a body to decode: uhttp rejects a response without a
+		// JSON content type, such as the empty 204 Box returns for a delete.
+		doOpts = append(doOpts, uhttp.WithJSONResponse(res))
+	}
+	resp, err := c.httpClient.Do(req, doOpts...)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
 	if err != nil {
+		if resp != nil && resp.StatusCode >= http.StatusBadRequest {
+			return errors.Join(err, &APIError{Message: errBody.ErrMessage, Code: errBody.Code, Status: resp.StatusCode})
+		}
 		return err
 	}
-
-	req.Header.Set("accept", "application/json")
-	req.Header.Set("content-type", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.token))
-
-	resp, err := c.httpClient.HttpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		var errResp struct {
-			Message string `json:"message"`
-			Code    string `json:"code"`
-		}
-		if decErr := json.NewDecoder(resp.Body).Decode(&errResp); decErr != nil {
-			return fmt.Errorf("baton-box: request failed (status %d, decode error: %w)", resp.StatusCode, decErr)
-		}
-		return &APIError{Message: errResp.Message, Code: errResp.Code, Status: resp.StatusCode}
-	}
-
-	if res != nil && resp.StatusCode != http.StatusNoContent {
-		if err := json.NewDecoder(resp.Body).Decode(res); err != nil {
-			return err
-		}
-	}
-
 	return nil
 }

@@ -50,7 +50,7 @@ func (o *enterpriseResourceType) List(ctx context.Context, _ *v2.ResourceId, _ r
 	// there is no endpoint just for enterprise so we have to get the current user with enterprise data.
 	currentUser, err := o.client.GetCurrentUserWithEnterprise(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("baton-box: failed to get enterprise: %w", err)
 	}
 
 	pr, err := enterpriseResource(ctx, currentUser.Enterprise)

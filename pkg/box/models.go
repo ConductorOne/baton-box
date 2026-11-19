@@ -1,5 +1,7 @@
 package box
 
+import "fmt"
+
 type BaseType struct {
 	ID   string `json:"id"`
 	Type string `json:"type"`
@@ -40,4 +42,29 @@ type CreateUserInput struct {
 	Name   string `json:"name"`
 	Role   string `json:"role,omitempty"`
 	Status string `json:"status,omitempty"`
+}
+
+// Folder is the subset of a Box folder returned by the transfer owned folders endpoint.
+type Folder struct {
+	BaseType
+	Name string `json:"name"`
+}
+
+// transferOwnedFolderInput is the body sent to PUT /2.0/users/{id}/folders/0.
+type transferOwnedFolderInput struct {
+	OwnedBy BaseType `json:"owned_by"`
+}
+
+// errorResponse is the JSON body Box returns with an error status.
+type errorResponse struct {
+	ErrMessage string `json:"message"`
+	Code       string `json:"code"`
+}
+
+// Message implements uhttp.ErrorResponse.
+func (e *errorResponse) Message() string {
+	if e.Code == "" {
+		return e.ErrMessage
+	}
+	return fmt.Sprintf("%s (code: %s)", e.ErrMessage, e.Code)
 }
