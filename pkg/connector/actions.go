@@ -45,10 +45,6 @@ const (
 // can shorten it.
 var transferWaitTimeout = 150 * time.Second
 
-// The SDK's ResourceActionProvider duplicate-type check rejects the same ActionType
-// appearing in more than one action registered for the same resource type, so
-// ACTION_TYPE_ACCOUNT is used only by the transfer action.
-
 var successReturnType = []*config.Field{
 	{Name: retSuccessKey, DisplayName: retSuccessDisplay, Field: &config.Field_BoolField{}},
 }
@@ -126,7 +122,8 @@ var transferUserFilesActionSchema = &v2.BatonActionSchema{
 	Name:        actionTransferFiles,
 	DisplayName: "Transfer User Files",
 	Description: "Moves all files and folders a Box user owns into a new folder in another user's account. " +
-		"Returns status completed when Box finishes within 2.5 minutes, or in_progress when the transfer is still running in Box.",
+		"Returns status completed when Box finishes within 2.5 minutes, or in_progress when the transfer is still running in Box. " +
+		"Do not deprovision the source user while the status is in_progress: by default that deletes the content that has not moved yet.",
 	Arguments: []*config.Field{
 		{
 			Name:        fieldUserID,
@@ -154,8 +151,9 @@ var transferUserFilesActionSchema = &v2.BatonActionSchema{
 		{
 			Name:        retStatusKey,
 			DisplayName: "Transfer Status",
-			Description: "completed when Box finished the transfer, or in_progress when Box is still moving content",
-			Field:       &config.Field_StringField{},
+			Description: "completed when Box finished the transfer, or in_progress when Box is still moving content. " +
+				"Wait before deprovisioning the source user while it is in_progress.",
+			Field: &config.Field_StringField{},
 		},
 		{
 			Name:        retFolderIDKey,
@@ -171,7 +169,7 @@ var transferUserFilesActionSchema = &v2.BatonActionSchema{
 		},
 	},
 	ActionType: []v2.ActionType{
-		v2.ActionType_ACTION_TYPE_ACCOUNT,
+		v2.ActionType_ACTION_TYPE_DYNAMIC,
 	},
 }
 
@@ -192,7 +190,7 @@ func (o *userResourceType) ResourceActions(ctx context.Context, registry actions
 
 func (o *userResourceType) updateProfileActionHandler(ctx context.Context, args *structpb.Struct) (*structpb.Struct, annotations.Annotations, error) {
 	if args == nil {
-		return nil, nil, status.Error(codes.InvalidArgument, "invalid arguments")
+		return nil, nil, status.Error(codes.InvalidArgument, "baton-box: invalid arguments")
 	}
 
 	userID, err := extractStringArg(args, fieldUserID, true)
@@ -210,7 +208,7 @@ func (o *userResourceType) updateProfileActionHandler(ctx context.Context, args 
 	}
 
 	if len(updates) == 0 {
-		return nil, nil, status.Error(codes.InvalidArgument, "at least one of name or login must be provided")
+		return nil, nil, status.Error(codes.InvalidArgument, "baton-box: at least one of name or login must be provided")
 	}
 
 	if _, err := o.client.UpdateUser(ctx, userID, updates); err != nil {
@@ -222,7 +220,7 @@ func (o *userResourceType) updateProfileActionHandler(ctx context.Context, args 
 
 func (o *userResourceType) disableUserActionHandler(ctx context.Context, args *structpb.Struct) (*structpb.Struct, annotations.Annotations, error) {
 	if args == nil {
-		return nil, nil, status.Error(codes.InvalidArgument, "invalid arguments")
+		return nil, nil, status.Error(codes.InvalidArgument, "baton-box: invalid arguments")
 	}
 
 	userID, err := extractStringArg(args, fieldUserID, true)
@@ -239,7 +237,7 @@ func (o *userResourceType) disableUserActionHandler(ctx context.Context, args *s
 
 func (o *userResourceType) enableUserActionHandler(ctx context.Context, args *structpb.Struct) (*structpb.Struct, annotations.Annotations, error) {
 	if args == nil {
-		return nil, nil, status.Error(codes.InvalidArgument, "invalid arguments")
+		return nil, nil, status.Error(codes.InvalidArgument, "baton-box: invalid arguments")
 	}
 
 	userID, err := extractStringArg(args, fieldUserID, true)
@@ -264,7 +262,7 @@ func (o *userResourceType) enableUserActionHandler(ctx context.Context, args *st
 
 func (o *userResourceType) transferUserFilesActionHandler(ctx context.Context, args *structpb.Struct) (*structpb.Struct, annotations.Annotations, error) {
 	if args == nil {
-		return nil, nil, status.Error(codes.InvalidArgument, "invalid arguments")
+		return nil, nil, status.Error(codes.InvalidArgument, "baton-box: invalid arguments")
 	}
 
 	sourceID, err := extractStringArg(args, fieldUserID, true)
@@ -277,10 +275,10 @@ func (o *userResourceType) transferUserFilesActionHandler(ctx context.Context, a
 	}
 	sourceID, targetID = strings.TrimSpace(sourceID), strings.TrimSpace(targetID)
 	if sourceID == "" || targetID == "" {
-		return nil, nil, status.Errorf(codes.InvalidArgument, "%s and %s must not be empty", fieldUserID, argTargetUserID)
+		return nil, nil, status.Errorf(codes.InvalidArgument, "baton-box: %s and %s must not be empty", fieldUserID, argTargetUserID)
 	}
 	if sourceID == targetID {
-		return nil, nil, status.Errorf(codes.InvalidArgument, "%s and %s must be different users", fieldUserID, argTargetUserID)
+		return nil, nil, status.Errorf(codes.InvalidArgument, "baton-box: %s and %s must be different users", fieldUserID, argTargetUserID)
 	}
 	notify, err := extractBoolArg(args, argNotify)
 	if err != nil {
@@ -357,7 +355,7 @@ func extractBoolArg(args *structpb.Struct, key string) (bool, error) {
 	}
 	bv, ok := val.GetKind().(*structpb.Value_BoolValue)
 	if !ok {
-		return false, status.Errorf(codes.InvalidArgument, "%s must be a boolean", key)
+		return false, status.Errorf(codes.InvalidArgument, "baton-box: %s must be a boolean", key)
 	}
 	return bv.BoolValue, nil
 }
@@ -368,19 +366,19 @@ func extractStringArg(args *structpb.Struct, key string, required bool) (string,
 	val, ok := args.Fields[key]
 	if !ok || val == nil {
 		if required {
-			return "", status.Errorf(codes.InvalidArgument, "missing required argument: %s", key)
+			return "", status.Errorf(codes.InvalidArgument, "baton-box: missing required argument: %s", key)
 		}
 		return "", nil
 	}
 	sv, ok := val.GetKind().(*structpb.Value_StringValue)
 	if !ok {
 		if required {
-			return "", status.Errorf(codes.InvalidArgument, "%s must be a string", key)
+			return "", status.Errorf(codes.InvalidArgument, "baton-box: %s must be a string", key)
 		}
 		return "", nil
 	}
 	if required && sv.StringValue == "" {
-		return "", status.Errorf(codes.InvalidArgument, "%s must not be empty", key)
+		return "", status.Errorf(codes.InvalidArgument, "baton-box: %s must not be empty", key)
 	}
 	return sv.StringValue, nil
 }

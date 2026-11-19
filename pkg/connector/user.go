@@ -205,9 +205,10 @@ func (o *userResourceType) Delete(ctx context.Context, resourceID *v2.ResourceId
 			if apiErr.Code == "not_found" {
 				return nil, nil
 			}
-			// Box does not document the error it returns for a user who still owns
-			// content. When force is off, treat the request-rejection statuses Box could
-			// plausibly use for that as this case. Everything else, including 401/403 and
+			// Box documents this refusal only in prose and lists no status for it, so
+			// 400/409/412 is an informed guess that has not been confirmed against a live
+			// tenant; the original error is kept in the message so the real cause shows.
+			// When force is off, treat these request-rejection statuses as this case. Everything else, including 401/403 and
 			// 429 rate limits, keeps the gRPC code doWrite derived from the HTTP status so
 			// it is reported and retried correctly.
 			if !o.forceDelete && isDeleteRefusedStatus(apiErr.Status) {
