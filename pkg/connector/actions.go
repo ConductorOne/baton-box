@@ -123,7 +123,7 @@ var transferUserFilesActionSchema = &v2.BatonActionSchema{
 	DisplayName: "Transfer User Files",
 	Description: "Moves all files and folders a Box user owns into a new folder in another user's account. " +
 		"Returns status completed when Box finishes within 2.5 minutes, or in_progress when the transfer is still running in Box. " +
-		"Do not deprovision the source user while the status is in_progress: by default that deletes the content that has not moved yet.",
+		"Do not deprovision the source user while the status is in_progress: unless Keep users who still own content is on, that deletes the content that has not moved yet.",
 	Arguments: []*config.Field{
 		{
 			Name:        fieldUserID,

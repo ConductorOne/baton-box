@@ -32,7 +32,7 @@ var (
 		field.WithDescription("When enabled, deleting a Box user fails while they still own files or folders, "+
 			"instead of deleting that content with them. Use it with the Transfer User Files action so content "+
 			"that has not been transferred yet is never deleted."),
-		field.WithDefaultValue(false),
+		field.WithSuggestedValue(true),
 	)
 	BaseURLField = field.StringField(
 		"base-url",
