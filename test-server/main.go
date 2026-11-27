@@ -111,6 +111,8 @@ type server struct {
 	memberships map[string][]*mockMembership // group ID → ordered membership list
 	mu          sync.Mutex
 	nextUserSeq int // used to generate IDs for created users
+	// nextFolderSeq generates IDs for folders created by owned-folder transfers.
+	nextFolderSeq int
 }
 
 func newServer() *server {
@@ -130,20 +132,20 @@ func (s *server) seed() {
 	// Users covering all three role values and both status values.
 	s.users[seedUserAliceID] = &mockUser{
 		ID: seedUserAliceID, Name: "Alice Anderson", Login: "alice@example.com",
-		Role: "admin", Status: statusActive,
+		Role: "admin", Status: statusActive, OwnsContent: true,
 	}
 	s.users[seedUserBobID] = &mockUser{
 		ID: seedUserBobID, Name: "Bob Brown", Login: "bob@example.com",
-		Role: "coadmin", Status: statusActive,
+		Role: "coadmin", Status: statusActive, OwnsContent: true,
 	}
 	s.users[seedUserCarolID] = &mockUser{
 		ID: seedUserCarolID, Name: "Carol Clark", Login: "carol@example.com",
-		Role: roleUser, Status: statusActive,
+		Role: roleUser, Status: statusActive, OwnsContent: true,
 	}
 	s.users[seedUserDaveID] = &mockUser{
 		// inactive — exercises STATUS_DISABLED path in userResource
 		ID: seedUserDaveID, Name: "Dave Davis", Login: "dave@example.com",
-		Role: roleUser, Status: "inactive",
+		Role: roleUser, Status: "inactive", OwnsContent: true,
 	}
 
 	s.groups[seedGroupEngineeringID] = &mockGroup{
@@ -280,6 +282,12 @@ func (s *server) handleUserByID(w http.ResponseWriter, r *http.Request) {
 
 	id := strings.TrimPrefix(r.URL.Path, "/2.0/users/")
 
+	// /2.0/users/{id}/folders/0 — transfer owned folders (TransferOwnedItems).
+	if sourceID, ok := strings.CutSuffix(id, "/folders/0"); ok {
+		s.transferOwnedFolder(w, r, sourceID)
+		return
+	}
+
 	// /2.0/users/me — called by GetCurrentUserWithEnterprise (Validate + enterprise sync).
 	if id == "me" {
 		if r.Method != http.MethodGet {
@@ -360,8 +368,15 @@ func (s *server) deleteUser(w http.ResponseWriter, r *http.Request, id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, ok := s.users[id]; !ok {
+	u, ok := s.users[id]
+	if !ok {
 		writeError(w, http.StatusNotFound, "not_found", "user not found: "+id)
+		return
+	}
+	// Without force=true Box refuses to delete a user who still owns content. Box does
+	// not document the error code for this, so the mock uses a generic 400.
+	if u.OwnsContent && r.URL.Query().Get("force") != "true" {
+		writeError(w, http.StatusBadRequest, "bad_request", "user still owns files or folders: "+id)
 		return
 	}
 
@@ -446,6 +461,54 @@ func (s *server) listMemberships(w http.ResponseWriter, r *http.Request, groupID
 		entries = append(entries, membershipToJSON(m, u, s.groups[groupID]))
 	}
 	writeJSON(w, http.StatusOK, listResponse(entries, len(mems), offset, limit))
+}
+
+// transferOwnedFolder mimics PUT /2.0/users/{id}/folders/0: it creates a folder named
+// "{source name}'s Files and Folders" owned by the target user and returns it.
+// Content is not modelled, so the transfer always completes immediately.
+func (s *server) transferOwnedFolder(w http.ResponseWriter, r *http.Request, sourceID string) {
+	if r.Method != http.MethodPut {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var body struct {
+		OwnedBy struct {
+			ID string `json:"id"`
+		} `json:"owned_by"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.OwnedBy.ID == "" {
+		writeError(w, http.StatusBadRequest, "bad_request", "owned_by.id is required")
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	source, ok := s.users[sourceID]
+	if !ok {
+		writeError(w, http.StatusNotFound, "not_found", "user not found: "+sourceID)
+		return
+	}
+	target, ok := s.users[body.OwnedBy.ID]
+	if !ok {
+		writeError(w, http.StatusNotFound, "not_found", "user not found: "+body.OwnedBy.ID)
+		return
+	}
+
+	source.OwnsContent = false
+	s.nextFolderSeq++
+	folderID := fmt.Sprintf("f-%03d", s.nextFolderSeq)
+	log.Printf("transferred owned items of user %s to user %s (folder %s)", source.ID, target.ID, folderID)
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"id":    folderID,
+		keyType: "folder",
+		keyName: source.Name + "'s Files and Folders",
+		"owned_by": map[string]interface{}{
+			"id":    target.ID,
+			keyType: roleUser,
+		},
+	})
 }
 
 // ─── JSON serialisers ─────────────────────────────────────────────────────────
@@ -546,8 +609,8 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// writeError writes a Box-style error body.  The code field is what the connector
-// inspects via strings.Contains(err.Error(), "code: <value>").
+// writeError writes a Box-style error body. The connector reads the code field through
+// *box.APIError.
 func writeError(w http.ResponseWriter, status int, code, message string) {
 	writeJSON(w, status, map[string]interface{}{
 		keyType:   "error",
@@ -570,6 +633,9 @@ type mockUser struct {
 	Login  string
 	Role   string
 	Status string
+	// OwnsContent marks users that still own files or folders. Seeded users do;
+	// a transfer of owned folders clears it on the source user.
+	OwnsContent bool
 }
 
 type mockGroup struct {

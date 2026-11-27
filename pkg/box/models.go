@@ -41,3 +41,26 @@ type CreateUserInput struct {
 	Role   string `json:"role,omitempty"`
 	Status string `json:"status,omitempty"`
 }
+
+// Folder is the subset of a Box folder returned by the transfer owned folders endpoint.
+type Folder struct {
+	BaseType
+	Name string `json:"name"`
+}
+
+// transferOwnedFolderInput is the body sent to PUT /2.0/users/{id}/folders/0.
+type transferOwnedFolderInput struct {
+	OwnedBy BaseType `json:"owned_by"`
+}
+
+// errorResponse is the JSON body Box returns with an error status.
+type errorResponse struct {
+	ErrMessage string `json:"message"`
+	Code       string `json:"code"`
+}
+
+// Message implements uhttp.ErrorResponse. Box's error code is reported by APIError,
+// which doWrite joins with the status error.
+func (e *errorResponse) Message() string {
+	return e.ErrMessage
+}

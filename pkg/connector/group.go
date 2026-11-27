@@ -96,7 +96,7 @@ func (g *groupResourceType) Grants(ctx context.Context, resource *v2.Resource, a
 
 	groupMemberships, nextMarker, _, err := g.client.GetGroupMemberships(ctx, resource.Id.Resource, attrs.PageToken.Token)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("baton-box: failed to list members of group %s: %w", resource.Id.Resource, err)
 	}
 
 	for _, groupMembership := range groupMemberships {

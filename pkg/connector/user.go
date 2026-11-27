@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"errors"
+	"net/http"
 
 	"github.com/conductorone/baton-box/pkg/box"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -19,6 +20,8 @@ import (
 type userResourceType struct {
 	resourceType *v2.ResourceType
 	client       *box.Client
+	// forceDelete makes Delete also delete the content the user still owns.
+	forceDelete bool
 }
 
 func (o *userResourceType) ResourceType(_ context.Context) *v2.ResourceType {
@@ -103,10 +106,11 @@ func (o *userResourceType) Grants(_ context.Context, _ *v2.Resource, _ rs.SyncOp
 	return nil, &rs.SyncOpResults{}, nil
 }
 
-func userBuilder(client *box.Client) *userResourceType {
+func userBuilder(client *box.Client, forceDelete bool) *userResourceType {
 	return &userResourceType{
 		resourceType: resourceTypeUser,
 		client:       client,
+		forceDelete:  forceDelete,
 	}
 }
 
@@ -188,16 +192,50 @@ func (o *userResourceType) CreateAccount(
 	}.Build(), nil, nil, nil
 }
 
-// Delete permanently removes a Box user via DELETE /2.0/users/{id}?force=true.
-// Returns nil when the user no longer exists so the operation is idempotent.
+// Delete permanently removes a Box user via DELETE /2.0/users/{id}. By default it
+// sends force=true, which also deletes the content the user still owns. With the
+// disable-force-delete option it sends force=false, which is meant to make Box refuse
+// to delete a user who still owns content, for example while a file transfer is still
+// running. Returns nil when the user no longer exists so the operation is idempotent.
 func (o *userResourceType) Delete(ctx context.Context, resourceID *v2.ResourceId, _ *v2.ResourceId) (annotations.Annotations, error) {
 	userID := resourceID.GetResource()
-	if err := o.client.DeleteUser(ctx, userID); err != nil {
-		var apiErr *box.APIError
-		if errors.As(err, &apiErr) && apiErr.Code == "not_found" {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("baton-box: failed to delete user %s: %w", userID, err)
+	err := o.client.DeleteUser(ctx, userID, o.forceDelete)
+	if err == nil || status.Code(err) == codes.NotFound {
+		return nil, nil
 	}
-	return nil, nil
+
+	var apiErr *box.APIError
+	if errors.As(err, &apiErr) {
+		// Box documents a 403 "forbidden" ("transfer user content first") for a user
+		// whose content is under a retention policy or legal hold, even with force=true.
+		if apiErr.Status == http.StatusForbidden && apiErr.Code == "forbidden" {
+			return nil, status.Errorf(codes.FailedPrecondition,
+				"baton-box: Box refused to delete user %s; their content may be under a retention policy "+
+					"or legal hold. Transfer their content first: %v", userID, err)
+		}
+		// With force off, Box refuses to delete a user who still owns content, but its
+		// docs give no status or code for that. We treat a 400, 409 or 412 carrying a Box
+		// error code as that refusal; this has not been confirmed against a live tenant,
+		// so the original error stays in the message. Every other error, including 401,
+		// 403 and 429, keeps the gRPC code doWrite derived from the HTTP status, so it is
+		// reported and retried correctly.
+		if !o.forceDelete && apiErr.Code != "" && isDeleteRefusedStatus(apiErr.Status) {
+			return nil, status.Errorf(codes.FailedPrecondition,
+				"baton-box: Box refused to delete user %s, who may still own files or folders "+
+					"(disable-force-delete is on, so their content is not deleted with them). "+
+					"Transfer their content first, or wait for a running transfer to finish: %v", userID, err)
+		}
+	}
+	return nil, fmt.Errorf("baton-box: failed to delete user %s: %w", userID, err)
+}
+
+// isDeleteRefusedStatus reports whether an HTTP status from DELETE /2.0/users/{id}
+// with force=false may mean Box refused because the user still owns content.
+func isDeleteRefusedStatus(httpStatus int) bool {
+	switch httpStatus {
+	case http.StatusBadRequest, http.StatusConflict, http.StatusPreconditionFailed:
+		return true
+	default:
+		return false
+	}
 }
