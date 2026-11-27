@@ -609,8 +609,8 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// writeError writes a Box-style error body.  The code field is what the connector
-// inspects via strings.Contains(err.Error(), "code: <value>").
+// writeError writes a Box-style error body. The connector reads the code field through
+// *box.APIError.
 func writeError(w http.ResponseWriter, status int, code, message string) {
 	writeJSON(w, status, map[string]interface{}{
 		keyType:   "error",

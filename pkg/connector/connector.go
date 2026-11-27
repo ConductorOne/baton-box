@@ -64,7 +64,7 @@ func New(ctx context.Context, cc *cfg.Box) (*Box, error) {
 		return nil, fmt.Errorf("baton-box: failed to get token: %w", err)
 	}
 
-	client, err := box.NewClient(httpClient, token, cc.BaseUrl)
+	client, err := box.NewClient(httpClient, token, cc.BaseUrl, box.WithTransferHTTPClient(box.NewTransferHTTPClient()))
 	if err != nil {
 		return nil, fmt.Errorf("baton-box: %w", err)
 	}

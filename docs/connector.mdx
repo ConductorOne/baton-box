@@ -44,7 +44,7 @@ A Box error, such as a transfer blocked by an information barrier (`forbidden_by
 Unless **Keep users who still own content** is on, deprovisioning a Box account also deletes the files and folders the user still owns. Do not deprovision the source user while a transfer is `in_progress`, or content that has not moved yet is lost. In an offboarding automation, branch on `status` and add a wait before deprovisioning when it is `in_progress`.
 </Warning>
 
-To make deprovisioning safe even without a wait, turn on **Keep users who still own content** (`disable-force-delete`) in the connector settings. Box then refuses to delete a user who still owns files or folders, and the deprovisioning step fails instead of deleting that content. Retry it once the transfer has finished.
+To make deprovisioning safe even without a wait, turn on **Keep users who still own content** (`disable-force-delete`) in the connector settings. The connector then asks Box not to delete a user who still owns files or folders, so the deprovisioning step fails instead of deleting that content. Retry it once the transfer has finished.
 
 We recommend turning this setting on. Connectors that existed before the setting was added keep it off until you turn it on, so check it in the connector settings.
 
@@ -203,7 +203,7 @@ A user with an administrator role in Box and two-factor authentication set on th
     Enter the enterprise ID into the **Enterprise ID** field.
     </Step>
     <Step>
-    Make sure **Keep users who still own content** is on (recommended), so deprovisioning never deletes a user's remaining files and folders. See [Transfer status](#transfer-status).
+    Make sure **Keep users who still own content** is on (recommended), so deprovisioning doesn't delete a user's remaining files and folders. See [Transfer status](#transfer-status).
     </Step>
     <Step>
     Click **Save**.

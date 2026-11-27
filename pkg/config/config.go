@@ -31,7 +31,7 @@ var (
 		field.WithDisplayName("Keep users who still own content"),
 		field.WithDescription("When enabled, deleting a Box user fails while they still own files or folders, "+
 			"instead of deleting that content with them. Use it with the Transfer User Files action so content "+
-			"that has not been transferred yet is never deleted."),
+			"that has not been transferred yet is not deleted with the user."),
 		field.WithSuggestedValue(true),
 	)
 	BaseURLField = field.StringField(

@@ -1,7 +1,5 @@
 package box
 
-import "fmt"
-
 type BaseType struct {
 	ID   string `json:"id"`
 	Type string `json:"type"`
@@ -61,10 +59,8 @@ type errorResponse struct {
 	Code       string `json:"code"`
 }
 
-// Message implements uhttp.ErrorResponse.
+// Message implements uhttp.ErrorResponse. Box's error code is reported by APIError,
+// which doWrite joins with the status error.
 func (e *errorResponse) Message() string {
-	if e.Code == "" {
-		return e.ErrMessage
-	}
-	return fmt.Sprintf("%s (code: %s)", e.ErrMessage, e.Code)
+	return e.ErrMessage
 }

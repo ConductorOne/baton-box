@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/conductorone/baton-box/pkg/box"
 	config "github.com/conductorone/baton-sdk/pb/c1/config/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/actions"
@@ -41,8 +42,12 @@ const (
 // transferWaitTimeout is how long the transfer action waits for Box to answer.
 // Box holds the request open while it moves content (up to 10 minutes), which is
 // longer than a connector action may run on the platform, so after this window the
-// action stops waiting and reports the transfer as in progress. A variable so tests
-// can shorten it.
+// action stops waiting and reports the transfer as in progress. 150s assumes the
+// default Lambda deployment, where C1 waits for an action for the Lambda timeout
+// (300s by default) minus one minute. With a shorter Lambda timeout C1 can mark the
+// action failed while it still waits; without Lambda, C1 waits longer and a transfer
+// that would have finished can be reported as in progress. A variable so tests can
+// shorten it.
 var transferWaitTimeout = 150 * time.Second
 
 var successReturnType = []*config.Field{
@@ -285,19 +290,13 @@ func (o *userResourceType) transferUserFilesActionHandler(ctx context.Context, a
 		return nil, nil, err
 	}
 
-	source, err := o.client.GetUser(ctx, sourceID)
+	source, err := o.getUserArg(ctx, sourceID, "source")
 	if err != nil {
-		if status.Code(err) == codes.NotFound {
-			return nil, nil, status.Errorf(codes.InvalidArgument, "baton-box: source user %s not found", sourceID)
-		}
-		return nil, nil, fmt.Errorf("baton-box: failed to get source user %s: %w", sourceID, err)
+		return nil, nil, err
 	}
-	target, err := o.client.GetUser(ctx, targetID)
+	target, err := o.getUserArg(ctx, targetID, "target")
 	if err != nil {
-		if status.Code(err) == codes.NotFound {
-			return nil, nil, status.Errorf(codes.InvalidArgument, "baton-box: target user %s not found", targetID)
-		}
-		return nil, nil, fmt.Errorf("baton-box: failed to get target user %s: %w", targetID, err)
+		return nil, nil, err
 	}
 	if target.Status != "active" {
 		return nil, nil, status.Errorf(codes.FailedPrecondition, "baton-box: target user %s is %s, not active", targetID, target.Status)
@@ -308,13 +307,15 @@ func (o *userResourceType) transferUserFilesActionHandler(ctx context.Context, a
 
 	folder, err := o.client.TransferOwnedItems(transferCtx, sourceID, targetID, notify)
 	if err != nil {
-		// Only our own wait window expiring means "still running"; a cancelled or
-		// expired parent context is a real failure.
-		if ctx.Err() == nil && errors.Is(transferCtx.Err(), context.DeadlineExceeded) {
-			ctxzap.Extract(ctx).Debug("baton-box: Box did not answer the transfer request within the wait window; reporting it as in progress",
+		// Box has the request and has not answered: our wait window expired, the
+		// response headers timed out, or Box's gateway gave up. A cancelled or expired
+		// parent context is a real failure.
+		if ctx.Err() == nil && errors.Is(err, box.ErrTransferNoAnswer) {
+			ctxzap.Extract(ctx).Debug("baton-box: Box received the transfer request but did not answer in time; reporting it as in progress",
 				zap.String("source_user_id", sourceID),
 				zap.String("target_user_id", targetID),
-				zap.Duration("wait", transferWaitTimeout),
+				zap.Duration("wait_window", transferWaitTimeout),
+				zap.Error(err),
 			)
 			return transferResult(transferStatusInProgress, "", expectedTransferFolderName(source.Name)), nil, nil
 		}
@@ -326,6 +327,19 @@ func (o *userResourceType) transferUserFilesActionHandler(ctx context.Context, a
 		folderName = expectedTransferFolderName(source.Name)
 	}
 	return transferResult(transferStatusCompleted, folder.ID, folderName), nil, nil
+}
+
+// getUserArg fetches the user an action argument names. role ("source" or "target")
+// labels the error; a user that does not exist is an InvalidArgument error.
+func (o *userResourceType) getUserArg(ctx context.Context, userID, role string) (*box.User, error) {
+	u, err := o.client.GetUser(ctx, userID)
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			return nil, status.Errorf(codes.InvalidArgument, "baton-box: %s user %s not found", role, userID)
+		}
+		return nil, fmt.Errorf("baton-box: failed to get %s user %s: %w", role, userID, err)
+	}
+	return u, nil
 }
 
 // expectedTransferFolderName returns the name Box gives the folder it creates in the

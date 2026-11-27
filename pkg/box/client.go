@@ -6,10 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -19,9 +23,18 @@ import (
 
 type Client struct {
 	httpClient *uhttp.BaseHttpClient
-	token      string
-	baseURL    string
+	// transferHTTPClient sends the transfer request, which Box holds open while it
+	// moves content. See NewTransferHTTPClient.
+	transferHTTPClient *uhttp.BaseHttpClient
+	token              string
+	baseURL            string
 }
+
+// ErrTransferNoAnswer reports that Box received the whole transfer request but no
+// answer from Box arrived before the client stopped waiting: the wait timed out, or
+// Box's gateway gave up with a 504. Box keeps a transfer running once it has the
+// request, so the caller can report it as still in progress.
+var ErrTransferNoAnswer = errors.New("box received the transfer request but did not answer in time")
 
 const (
 	defaultBaseURL = "https://api.box.com"
@@ -40,22 +53,69 @@ type APIError struct {
 	Status  int
 }
 
+// Error returns only Box's error code: the status error it is joined with already
+// carries the HTTP status and Box's message.
 func (e *APIError) Error() string {
-	return fmt.Sprintf("%s (code: %s, status: %d)", e.Message, e.Code, e.Status)
+	if e.Code == "" {
+		return "box error without a code"
+	}
+	return "box error code: " + e.Code
 }
 
-func NewClient(httpClient *http.Client, token string, baseURL string) (*Client, error) {
+// ClientOption configures a Client.
+type ClientOption func(*Client)
+
+// WithTransferHTTPClient sets the HTTP client used for the transfer request. Without
+// it, the transfer request uses the client passed to NewClient.
+func WithTransferHTTPClient(httpClient *http.Client) ClientOption {
+	return func(c *Client) {
+		c.transferHTTPClient = uhttp.NewBaseHttpClient(httpClient)
+	}
+}
+
+func NewClient(httpClient *http.Client, token string, baseURL string, opts ...ClientOption) (*Client, error) {
 	if baseURL == "" {
 		baseURL = defaultBaseURL
 	}
 	if _, err := url.Parse(baseURL); err != nil {
 		return nil, fmt.Errorf("invalid base URL %q: %w", baseURL, err)
 	}
-	return &Client{
-		httpClient: uhttp.NewBaseHttpClient(httpClient),
-		token:      token,
-		baseURL:    strings.TrimRight(baseURL, "/"),
-	}, nil
+	base := uhttp.NewBaseHttpClient(httpClient)
+	c := &Client{
+		httpClient:         base,
+		transferHTTPClient: base,
+		token:              token,
+		baseURL:            strings.TrimRight(baseURL, "/"),
+	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c, nil
+}
+
+// NewTransferHTTPClient returns an HTTP client for the transfer request. The client
+// from uhttp.NewClient stops waiting for response headers after 60 seconds, while Box
+// holds the transfer request open until it finishes (up to 10 minutes). This client
+// has no header timeout, so the caller's context alone bounds the wait. It keeps the
+// proxy and HTTP/2 keepalive settings of the uhttp transport, and opens a new
+// connection per request so a connection left idle across a Lambda freeze is never
+// reused.
+func NewTransferHTTPClient() *http.Client {
+	t := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		ForceAttemptHTTP2:   true,
+		TLSHandshakeTimeout: 10 * time.Second,
+		DisableKeepAlives:   true,
+		HTTP2: &http.HTTP2Config{
+			SendPingTimeout: 15 * time.Second,
+			PingTimeout:     15 * time.Second,
+		},
+	}
+	return &http.Client{Transport: t}
 }
 
 // RequestAccessToken creates bearer token needed to use the Box API.
@@ -320,8 +380,13 @@ func (c *Client) DeleteUser(ctx context.Context, userID string, force bool) erro
 
 // TransferOwnedItems moves every item owned by sourceUserID into a new folder in
 // destUserID's account via PUT /2.0/users/{id}/folders/0, and returns that folder.
-// Box names it "{User}'s Files and Folders". Large transfers keep running in the
-// background after Box responds, and Box offers no endpoint to check completion.
+// Box names it "{User}'s Files and Folders". Box holds the request open while it moves
+// content; only a transfer that runs past 10 minutes keeps going after Box answers, and
+// Box offers no endpoint to check completion.
+//
+// When Box has received the whole request but the wait ends first (the context
+// deadline, a response-header timeout, or a 504 from Box's gateway), the error wraps
+// ErrTransferNoAnswer.
 func (c *Client) TransferOwnedItems(ctx context.Context, sourceUserID, destUserID string, notify bool) (*Folder, error) {
 	folderURL, err := url.JoinPath(c.baseURL, pathUsers, url.PathEscape(sourceUserID), pathRootFolder)
 	if err != nil {
@@ -330,12 +395,38 @@ func (c *Client) TransferOwnedItems(ctx context.Context, sourceUserID, destUserI
 	q := url.Values{}
 	q.Set("notify", strconv.FormatBool(notify))
 
+	var requestSent atomic.Bool
+	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+		WroteRequest: func(info httptrace.WroteRequestInfo) {
+			if info.Err == nil {
+				requestSent.Store(true)
+			}
+		},
+	})
+
 	body := transferOwnedFolderInput{OwnedBy: BaseType{ID: destUserID, Type: "user"}}
 	var res Folder
-	if err := c.doWrite(ctx, http.MethodPut, folderURL+"?"+q.Encode(), body, &res); err != nil {
+	if err := c.doWriteWith(ctx, c.transferHTTPClient, http.MethodPut, folderURL+"?"+q.Encode(), body, &res); err != nil {
+		if requestSent.Load() && isNoAnswer(err) {
+			return nil, fmt.Errorf("%w: %w", ErrTransferNoAnswer, err)
+		}
 		return nil, err
 	}
 	return &res, nil
+}
+
+// isNoAnswer reports whether err means the server did not answer in time: a timeout
+// (context deadline, response-header or client timeout) or a 504 from a gateway.
+func isNoAnswer(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	var apiErr *APIError
+	return errors.As(err, &apiErr) && apiErr.Status == http.StatusGatewayTimeout
 }
 
 // ActivateUser sets a Box user's status back to active.
@@ -390,6 +481,11 @@ func (c *Client) doRequest(ctx context.Context, rawURL string, res interface{}, 
 // rate-limit details, joined with an *APIError holding Box's error code (e.g.
 // "user_login_already_used") so callers can inspect it with errors.As.
 func (c *Client) doWrite(ctx context.Context, method, rawURL string, body interface{}, res interface{}) error {
+	return c.doWriteWith(ctx, c.httpClient, method, rawURL, body, res)
+}
+
+// doWriteWith is doWrite through the given HTTP client.
+func (c *Client) doWriteWith(ctx context.Context, hc *uhttp.BaseHttpClient, method, rawURL string, body interface{}, res interface{}) error {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("parsing url: %w", err)
@@ -399,7 +495,7 @@ func (c *Client) doWrite(ctx context.Context, method, rawURL string, body interf
 	if body != nil {
 		reqOpts = append(reqOpts, uhttp.WithJSONBody(body))
 	}
-	req, err := c.httpClient.NewRequest(ctx, method, u, reqOpts...)
+	req, err := hc.NewRequest(ctx, method, u, reqOpts...)
 	if err != nil {
 		return err
 	}
@@ -411,7 +507,7 @@ func (c *Client) doWrite(ctx context.Context, method, rawURL string, body interf
 		// JSON content type, such as the empty 204 Box returns for a delete.
 		doOpts = append(doOpts, uhttp.WithJSONResponse(res))
 	}
-	resp, err := c.httpClient.Do(req, doOpts...)
+	resp, err := hc.Do(req, doOpts...)
 	if resp != nil {
 		defer resp.Body.Close()
 	}

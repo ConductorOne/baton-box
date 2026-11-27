@@ -15,6 +15,7 @@ import (
 
 // newDeleteTest starts a server that answers DELETE /2.0/users/{id} with the given
 // status and Box error code (204 means success) and records the force query param.
+// An empty respCode answers with a plain-text body instead of Box's JSON error.
 func newDeleteTest(t *testing.T, forceDelete bool, respStatus int, respCode string) (*userResourceType, *string) {
 	t.Helper()
 	var gotForce string
@@ -26,6 +27,12 @@ func newDeleteTest(t *testing.T, forceDelete bool, respStatus int, respCode stri
 		gotForce = r.URL.Query().Get("force")
 		if respStatus == http.StatusNoContent {
 			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if respCode == "" {
+			w.Header().Set("Content-Type", "text/plain")
+			w.WriteHeader(respStatus)
+			_, _ = w.Write([]byte("refused"))
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -68,10 +75,32 @@ func TestDelete_ForceParam(t *testing.T) {
 
 func TestDelete_NotFoundIsSuccess(t *testing.T) {
 	for _, forceDelete := range []bool{true, false} {
-		o, _ := newDeleteTest(t, forceDelete, http.StatusNotFound, "not_found")
-		if _, err := o.Delete(context.Background(), userID("u1"), nil); err != nil {
-			t.Errorf("forceDelete=%v: unexpected error: %v", forceDelete, err)
+		for _, respCode := range []string{"not_found", ""} {
+			o, _ := newDeleteTest(t, forceDelete, http.StatusNotFound, respCode)
+			if _, err := o.Delete(context.Background(), userID("u1"), nil); err != nil {
+				t.Errorf("forceDelete=%v code=%q: unexpected error: %v", forceDelete, respCode, err)
+			}
 		}
+	}
+}
+
+func TestDelete_RetentionPolicyRefusal(t *testing.T) {
+	for _, forceDelete := range []bool{true, false} {
+		o, _ := newDeleteTest(t, forceDelete, http.StatusForbidden, "forbidden")
+		_, err := o.Delete(context.Background(), userID("u1"), nil)
+		if got := status.Code(err); got != codes.FailedPrecondition {
+			t.Errorf("forceDelete=%v: code = %v, want FailedPrecondition (err: %v)", forceDelete, got, err)
+		}
+	}
+}
+
+// A refusal status without a Box error code (e.g. a proxy's plain-text 400) is not
+// treated as "still owns content".
+func TestDelete_RefusalStatusWithoutBoxCode(t *testing.T) {
+	o, _ := newDeleteTest(t, false, http.StatusBadRequest, "")
+	_, err := o.Delete(context.Background(), userID("u1"), nil)
+	if got := status.Code(err); got != codes.InvalidArgument {
+		t.Errorf("code = %v, want InvalidArgument (err: %v)", got, err)
 	}
 }
 

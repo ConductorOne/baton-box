@@ -6,10 +6,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/conductorone/baton-box/pkg/box"
+	"github.com/conductorone/baton-sdk/pkg/uhttp"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -23,11 +25,23 @@ type transferMock struct {
 	transferCode   string
 	transferDelay  time.Duration // how long PUT waits before answering
 
-	// Recorded from the last transfer request.
-	transferCalls  int
-	gotSourceID    string
-	gotOwnedByID   string
-	gotNotifyParam string
+	// mu guards rec: the server goroutine writes it while the test reads it.
+	mu  sync.Mutex
+	rec transferRecord
+}
+
+// transferRecord is what the mock recorded from the last transfer request.
+type transferRecord struct {
+	calls     int
+	sourceID  string
+	ownedByID string
+	notify    string
+}
+
+func (m *transferMock) recorded() transferRecord {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.rec
 }
 
 func (m *transferMock) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -35,16 +49,20 @@ func (m *transferMock) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/2.0/users/")
 
 	if sourceID, ok := strings.CutSuffix(path, "/folders/0"); ok && r.Method == http.MethodPut {
-		m.transferCalls++
-		m.gotSourceID = sourceID
-		m.gotNotifyParam = r.URL.Query().Get("notify")
 		var body struct {
 			OwnedBy struct {
 				ID string `json:"id"`
 			} `json:"owned_by"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		m.gotOwnedByID = body.OwnedBy.ID
+		m.mu.Lock()
+		m.rec = transferRecord{
+			calls:     m.rec.calls + 1,
+			sourceID:  sourceID,
+			ownedByID: body.OwnedBy.ID,
+			notify:    r.URL.Query().Get("notify"),
+		}
+		m.mu.Unlock()
 
 		if m.transferDelay > 0 {
 			select {
@@ -78,15 +96,40 @@ func (m *transferMock) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusMethodNotAllowed)
 }
 
-func newTransferTest(t *testing.T, m *transferMock) *userResourceType {
+func newTransferTest(t *testing.T, m *transferMock, opts ...box.ClientOption) *userResourceType {
 	t.Helper()
 	srv := httptest.NewServer(m)
 	t.Cleanup(srv.Close)
-	client, err := box.NewClient(srv.Client(), "test-token", srv.URL)
+	client, err := box.NewClient(srv.Client(), "test-token", srv.URL, opts...)
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
 	return userBuilder(client, true)
+}
+
+// shortenTransferWait sets transferWaitTimeout for one test.
+func shortenTransferWait(t *testing.T, d time.Duration) {
+	t.Helper()
+	orig := transferWaitTimeout
+	transferWaitTimeout = d
+	t.Cleanup(func() { transferWaitTimeout = orig })
+}
+
+// assertInProgress checks an in-progress transfer result.
+func assertInProgress(t *testing.T, ret *structpb.Struct) {
+	t.Helper()
+	if got := ret.Fields[retStatusKey].GetStringValue(); got != transferStatusInProgress {
+		t.Errorf("status = %q, want %q", got, transferStatusInProgress)
+	}
+	if !ret.Fields[retSuccessKey].GetBoolValue() {
+		t.Errorf("success = false, want true")
+	}
+	if got := ret.Fields[retFolderIDKey].GetStringValue(); got != "" {
+		t.Errorf("folder_id = %q, want empty while in progress", got)
+	}
+	if got := ret.Fields[retFolderNameKey].GetStringValue(); got != "Name src's Files and Folders" {
+		t.Errorf("folder_name = %q, want the name Box will give the folder", got)
+	}
 }
 
 func transferArgs(t *testing.T, fields map[string]interface{}) *structpb.Struct {
@@ -111,11 +154,12 @@ func TestTransferUserFiles_Success(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if m.transferCalls != 1 || m.gotSourceID != "src" || m.gotOwnedByID != "dst" {
-		t.Fatalf("unexpected transfer request: calls=%d source=%q owned_by=%q", m.transferCalls, m.gotSourceID, m.gotOwnedByID)
+	rec := m.recorded()
+	if rec.calls != 1 || rec.sourceID != "src" || rec.ownedByID != "dst" {
+		t.Fatalf("unexpected transfer request: calls=%d source=%q owned_by=%q", rec.calls, rec.sourceID, rec.ownedByID)
 	}
-	if m.gotNotifyParam != "true" {
-		t.Errorf("notify query param = %q, want %q", m.gotNotifyParam, "true")
+	if rec.notify != "true" {
+		t.Errorf("notify query param = %q, want %q", rec.notify, "true")
 	}
 	if !ret.Fields[retSuccessKey].GetBoolValue() {
 		t.Errorf("success = false, want true")
@@ -141,8 +185,8 @@ func TestTransferUserFiles_NotifyDefaultsToFalse(t *testing.T) {
 	})); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if m.gotNotifyParam != "false" {
-		t.Errorf("notify query param = %q, want %q", m.gotNotifyParam, "false")
+	if got := m.recorded().notify; got != "false" {
+		t.Errorf("notify query param = %q, want %q", got, "false")
 	}
 }
 
@@ -170,8 +214,8 @@ func TestTransferUserFiles_InvalidInput(t *testing.T) {
 			if got := status.Code(err); got != tt.wantCode {
 				t.Fatalf("code = %v, want %v (err: %v)", got, tt.wantCode, err)
 			}
-			if m.transferCalls != 0 {
-				t.Errorf("transfer was called %d times, want 0", m.transferCalls)
+			if calls := m.recorded().calls; calls != 0 {
+				t.Errorf("transfer was called %d times, want 0", calls)
 			}
 		})
 	}
@@ -215,9 +259,7 @@ func TestTransferUserFiles_APIError(t *testing.T) {
 }
 
 func TestTransferUserFiles_StillRunningAfterWaitWindow(t *testing.T) {
-	orig := transferWaitTimeout
-	transferWaitTimeout = 50 * time.Millisecond
-	t.Cleanup(func() { transferWaitTimeout = orig })
+	shortenTransferWait(t, 50*time.Millisecond)
 
 	m := &transferMock{
 		users:         map[string]string{"src": "active", "dst": "active"},
@@ -236,21 +278,96 @@ func TestTransferUserFiles_StillRunningAfterWaitWindow(t *testing.T) {
 	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Errorf("handler waited %v, want it to stop at the wait window", elapsed)
 	}
-	if m.transferCalls != 1 {
-		t.Errorf("transfer calls = %d, want 1", m.transferCalls)
+	if calls := m.recorded().calls; calls != 1 {
+		t.Errorf("transfer calls = %d, want 1", calls)
 	}
-	if got := ret.Fields[retStatusKey].GetStringValue(); got != transferStatusInProgress {
-		t.Errorf("status = %q, want %q", got, transferStatusInProgress)
+	assertInProgress(t, ret)
+}
+
+// A response-header timeout in the HTTP transport, like the 60s one uhttp.NewClient
+// sets, means Box has the request and has not answered, so it is in progress too.
+func TestTransferUserFiles_HeaderTimeoutIsInProgress(t *testing.T) {
+	shortenTransferWait(t, 5*time.Second)
+
+	m := &transferMock{
+		users:         map[string]string{"src": "active", "dst": "active"},
+		transferDelay: 2 * time.Second,
 	}
-	if !ret.Fields[retSuccessKey].GetBoolValue() {
-		t.Errorf("success = false, want true")
+	headerTimeoutClient := &http.Client{Transport: &http.Transport{ResponseHeaderTimeout: 50 * time.Millisecond}}
+	o := newTransferTest(t, m, box.WithTransferHTTPClient(headerTimeoutClient))
+
+	start := time.Now()
+	ret, _, err := o.transferUserFilesActionHandler(context.Background(), transferArgs(t, map[string]interface{}{
+		fieldUserID:     "src",
+		argTargetUserID: "dst",
+	}))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if got := ret.Fields[retFolderIDKey].GetStringValue(); got != "" {
-		t.Errorf("folder_id = %q, want empty while in progress", got)
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Errorf("handler waited %v, want it to stop at the header timeout", elapsed)
 	}
-	if got := ret.Fields[retFolderNameKey].GetStringValue(); got != "Name src's Files and Folders" {
-		t.Errorf("folder_name = %q, want the name Box will give the folder", got)
+	assertInProgress(t, ret)
+}
+
+func TestTransferUserFiles_GatewayTimeoutIsInProgress(t *testing.T) {
+	m := &transferMock{
+		users:          map[string]string{"src": "active", "dst": "active"},
+		transferStatus: http.StatusGatewayTimeout,
+		transferCode:   "gateway_timeout",
 	}
+	o := newTransferTest(t, m)
+
+	ret, _, err := o.transferUserFilesActionHandler(context.Background(), transferArgs(t, map[string]interface{}{
+		fieldUserID:     "src",
+		argTargetUserID: "dst",
+	}))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertInProgress(t, ret)
+}
+
+// The production wiring: uhttp.NewClient for every call except the transfer request,
+// which goes through box.NewTransferHTTPClient.
+func TestTransferUserFiles_ProductionClients(t *testing.T) {
+	ctx := context.Background()
+	newProdTest := func(t *testing.T, m *transferMock) *userResourceType {
+		t.Helper()
+		srv := httptest.NewServer(m)
+		t.Cleanup(srv.Close)
+		httpClient, err := uhttp.NewClient(ctx)
+		if err != nil {
+			t.Fatalf("uhttp.NewClient: %v", err)
+		}
+		client, err := box.NewClient(httpClient, "test-token", srv.URL, box.WithTransferHTTPClient(box.NewTransferHTTPClient()))
+		if err != nil {
+			t.Fatalf("NewClient: %v", err)
+		}
+		return userBuilder(client, true)
+	}
+	args := map[string]interface{}{fieldUserID: "src", argTargetUserID: "dst"}
+
+	t.Run("completed", func(t *testing.T) {
+		m := &transferMock{users: map[string]string{"src": "active", "dst": "active"}}
+		ret, _, err := newProdTest(t, m).transferUserFilesActionHandler(ctx, transferArgs(t, args))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got := ret.Fields[retStatusKey].GetStringValue(); got != transferStatusCompleted {
+			t.Errorf("status = %q, want %q", got, transferStatusCompleted)
+		}
+	})
+
+	t.Run("still running", func(t *testing.T) {
+		shortenTransferWait(t, 100*time.Millisecond)
+		m := &transferMock{users: map[string]string{"src": "active", "dst": "active"}, transferDelay: 2 * time.Second}
+		ret, _, err := newProdTest(t, m).transferUserFilesActionHandler(ctx, transferArgs(t, args))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		assertInProgress(t, ret)
+	})
 }
 
 func TestTransferUserFiles_CancelledContextIsAnError(t *testing.T) {
